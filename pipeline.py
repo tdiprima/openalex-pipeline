@@ -6,9 +6,10 @@ import time
 from typing import Optional
 
 from api_client import OpenAlexAPI
-from content_validator import ContentValidator
-from pdf_processor import PDFProcessor
 from config import config
+from content_validator import ContentValidator
+from data_exporter import DataExporter
+from pdf_processor import PDFProcessor
 
 
 class ResearchPipeline:
@@ -24,6 +25,7 @@ class ResearchPipeline:
         self.api = OpenAlexAPI(email=email)
         self.processor = PDFProcessor()
         self.validator = ContentValidator()
+        self.exporter = DataExporter(output_dir=config.pipeline.output_directory)
 
     def process_author(self, author, num_pubs: int = 2):
         """
@@ -49,9 +51,14 @@ class ResearchPipeline:
 
         print(f"Found {len(publications)} publications.")
 
-        # Process each publication
+        # Process each publication and collect results
+        processing_results = []
         for pub_idx, pub in enumerate(publications):
-            self.process_publication(pub, pub_idx + 1, len(publications))
+            result = self.process_publication(pub, pub_idx + 1, len(publications))
+            processing_results.append(result)
+
+        # Add to exporter
+        self.exporter.add_author(author, publications, processing_results)
 
     def process_publication(self, pub, pub_idx: int, total_pubs: int):
         """
@@ -61,7 +68,23 @@ class ResearchPipeline:
             pub: Publication object to process
             pub_idx: Current publication index
             total_pubs: Total number of publications
+
+        Returns:
+            Dict with processing results
         """
+        from datetime import datetime
+
+        # Initialize result dictionary
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "pdf_downloaded": False,
+            "pdf_path": None,
+            "text_extracted": False,
+            "text_length": 0,
+            "stonybrook_validation": {},
+            "summary": None,
+        }
+
         print(f"\n  --- Publication {pub_idx}/{total_pubs} ---")
         print(f"  Title: {pub.title}")
         print(f"  Year: {pub.publication_year}")
@@ -73,24 +96,34 @@ class ResearchPipeline:
             print(f"  URL: {pub.pdf_url}")
 
             # Download and process PDF
-            pdf_path = f"paper_{pub_idx}.pdf"
+            # Create organized PDF path in output directory
+            run_dir = self.exporter.get_run_directory()
+            pdf_filename = f"paper_{pub_idx}_{pub.title[:50].replace('/', '_').replace(':', '_')}.pdf"
+            pdf_path = f"{run_dir}/{pdf_filename}"
+
             if self.processor.download_pdf(pub.pdf_url, pdf_path):
                 print(f"  Downloaded to {pdf_path}")
+                result["pdf_downloaded"] = True
+                result["pdf_path"] = pdf_path
 
                 text = self.processor.extract_text(pdf_path)
                 print(f"  Extracted {len(text)} characters")
+                result["text_extracted"] = len(text) > 0
+                result["text_length"] = len(text)
 
                 # Check for Stony Brook content
                 check = self.validator.check_stonybrook_content(text)
                 print(f"  Stony Brook mentions: {check['count']}")
                 if check["found"]:
                     print(f"  Context: {check['contexts'][0]}")
+                result["stonybrook_validation"] = check
 
                 # Summarize (if enabled)
                 if config.pdf.summarization_enabled:
                     summary = self.processor.summarize_text(text)
                     if summary:
                         print(f"  Summary: {summary}")
+                        result["summary"] = summary
 
         else:
             print("  PDF: Not available ✗")
@@ -101,6 +134,8 @@ class ResearchPipeline:
                 pub.abstract[:200] + "..." if len(pub.abstract) > 200 else pub.abstract
             )
             print(f"  Abstract: {abstract_preview}")
+
+        return result
 
     def run(self, num_authors: int = 3, num_pubs: int = 2):
         """
@@ -131,6 +166,24 @@ class ResearchPipeline:
 
             # Rate limiting
             time.sleep(1)
+
+        # Export results to JSON
+        print("\n[EXPORTING RESULTS]")
+        full_results_path = self.exporter.save_json()
+        summary_path = self.exporter.save_authors_summary()
+        stats = self.exporter.get_stats()
+
+        print("\nResults exported to:")
+        print(f"  Full results: {full_results_path}")
+        print(f"  Authors summary: {summary_path}")
+        print(f"  Run directory: {self.exporter.get_run_directory()}")
+
+        print("\nProcessing Statistics:")
+        print(f"  Authors processed: {stats['total_authors']}")
+        print(f"  Publications found: {stats['total_publications']}")
+        print(f"  PDFs downloaded: {stats['pdfs_downloaded']}")
+        print(f"  Stony Brook mentions: {stats['stonybrook_mentions_found']}")
+        print(f"  Summaries generated: {stats['summaries_generated']}")
 
         print("\n" + "=" * 70)
         print("PIPELINE COMPLETE")
