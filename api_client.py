@@ -43,7 +43,7 @@ class OpenAlexAPI:
         # Query for authors with Stony Brook affiliation
         url = f"{self.BASE_URL}/authors"
         params = {
-            "filter": f"last_known_institutions.ror:{stonybrook_ror}",
+            "filter": f"affiliations.institution.ror:{stonybrook_ror}",
             "per-page": min(max_results, 200),
             "sort": "cited_by_count:desc",  # Get most cited authors first
         }
