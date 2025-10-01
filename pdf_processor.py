@@ -41,9 +41,7 @@ class PDFProcessor:
 
     def __init__(self):
         self.summarizer = None
-        if LLM_AVAILABLE:
-            print("Loading summarization model (this may take a moment)...")
-            self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+        # Lazy loading - only load model when first summarization is requested
 
     def download_pdf(self, url: str, output_path: str) -> bool:
         """Download PDF from URL"""
@@ -131,8 +129,17 @@ class PDFProcessor:
 
     def summarize_text(self, text: str, max_length: int = 150) -> Optional[str]:
         """Summarize text using language model"""
-        if not self.summarizer or len(text) < 200:
+        if not LLM_AVAILABLE or len(text) < 200:
             return None
+            
+        # Lazy load the model on first use
+        if self.summarizer is None:
+            try:
+                print("Loading summarization model (this may take a moment)...")
+                self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+            except Exception as e:
+                print(f"  Failed to load summarization model: {e}")
+                return None
 
         try:
             # Truncate to avoid token limits

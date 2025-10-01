@@ -8,6 +8,7 @@ from typing import Optional
 from api_client import OpenAlexAPI
 from content_validator import ContentValidator
 from pdf_processor import PDFProcessor
+from config import config
 
 
 class ResearchPipeline:
@@ -85,10 +86,11 @@ class ResearchPipeline:
                 if check["found"]:
                     print(f"  Context: {check['contexts'][0]}")
 
-                # Summarize
-                summary = self.processor.summarize_text(text)
-                if summary:
-                    print(f"  Summary: {summary}")
+                # Summarize (if enabled)
+                if config.pdf.summarization_enabled:
+                    summary = self.processor.summarize_text(text)
+                    if summary:
+                        print(f"  Summary: {summary}")
 
         else:
             print("  PDF: Not available ✗")

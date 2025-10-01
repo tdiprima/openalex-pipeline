@@ -44,6 +44,19 @@ python main.py --email you@email --authors 5 --pubs 3
 * `NUM_AUTHORS`, `NUM_PUBS` → defaults
 * `OUTPUT_DIR` → download path (default: `./output`)
 
+### Enabling/Disabling AI Summarization
+
+```bash
+# Enable summarization (requires transformers and torch installed)
+export ENABLE_SUMMARIZATION=true
+python main.py --email your@email.com
+
+# Disable summarization (default)
+export ENABLE_SUMMARIZATION=false
+# or simply omit the environment variable
+python main.py --email your@email.com
+```
+
 ## 🏗️ Core pieces
 
 * **pipeline.py** → main flow
