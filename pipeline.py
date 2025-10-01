@@ -94,14 +94,14 @@ class ResearchPipeline:
         if pub.pdf_url:
             print("  PDF: Available ✓")
             print(f"  URL: {pub.pdf_url}")
-            
+
             if config.pdf.download_enabled:
                 # Download and process PDF
                 # Create organized PDF path in output directory
                 run_dir = self.exporter.get_run_directory()
                 pdf_filename = f"paper_{pub_idx}_{pub.title[:50].replace('/', '_').replace(':', '_')}.pdf"
                 pdf_path = f"{run_dir}/{pdf_filename}"
-                
+
                 if self.processor.download_pdf(pub.pdf_url, pdf_path):
                     print(f"  Downloaded to {pdf_path}")
                     result["pdf_downloaded"] = True
@@ -177,14 +177,14 @@ class ResearchPipeline:
         stats_path = self.exporter.save_stats()
         stats = self.exporter.get_stats()
         self.exporter.close()
-        
-        print(f"\nResults exported to:")
+
+        print("\nResults exported to:")
         print(f"  Authors: {self.exporter.authors_file_path}")
         print(f"  Publications: {self.exporter.publications_file_path}")
         print(f"  Statistics: {stats_path}")
         print(f"  Run directory: {self.exporter.get_run_directory()}")
-        
-        print(f"\nProcessing Statistics:")
+
+        print("\nProcessing Statistics:")
         print(f"  Authors processed: {stats['total_authors']}")
         print(f"  Publications found: {stats['total_publications']}")
         print(f"  PDFs downloaded: {stats['pdfs_downloaded']}")
