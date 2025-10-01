@@ -35,6 +35,7 @@ class StonyBrookConfig:
 class PDFConfig:
     """PDF processing configuration"""
 
+    download_enabled: bool = True  # Control PDF downloading
     download_timeout: int = 30
     chunk_size: int = 8192
     ocr_enabled: bool = False
@@ -73,6 +74,7 @@ class Config:
         self.api.email = os.getenv("OPENALEX_EMAIL", self.api.email)
 
         # PDF configuration
+        self.pdf.download_enabled = os.getenv("ENABLE_PDF_DOWNLOAD", "true").lower() == "true"
         self.pdf.ocr_enabled = os.getenv("ENABLE_OCR", "false").lower() == "true"
         self.pdf.summarization_enabled = (
             os.getenv("ENABLE_SUMMARIZATION", "false").lower() == "true"

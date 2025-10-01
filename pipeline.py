@@ -8,7 +8,7 @@ from typing import Optional
 from api_client import OpenAlexAPI
 from config import config
 from content_validator import ContentValidator
-from data_exporter import DataExporter
+from data_exporter_streaming import DataExporter
 from pdf_processor import PDFProcessor
 
 
@@ -90,41 +90,46 @@ class ResearchPipeline:
         print(f"  Year: {pub.publication_year}")
         print(f"  DOI: {pub.doi or 'N/A'}")
 
-        # Check if PDF is available
+        # Check if PDF is available and downloads are enabled
         if pub.pdf_url:
             print("  PDF: Available ✓")
             print(f"  URL: {pub.pdf_url}")
+            
+            if config.pdf.download_enabled:
+                # Download and process PDF
+                # Create organized PDF path in output directory
+                run_dir = self.exporter.get_run_directory()
+                pdf_filename = f"paper_{pub_idx}_{pub.title[:50].replace('/', '_').replace(':', '_')}.pdf"
+                pdf_path = f"{run_dir}/{pdf_filename}"
+                
+                if self.processor.download_pdf(pub.pdf_url, pdf_path):
+                    print(f"  Downloaded to {pdf_path}")
+                    result["pdf_downloaded"] = True
+                    result["pdf_path"] = pdf_path
 
-            # Download and process PDF
-            # Create organized PDF path in output directory
-            run_dir = self.exporter.get_run_directory()
-            pdf_filename = f"paper_{pub_idx}_{pub.title[:50].replace('/', '_').replace(':', '_')}.pdf"
-            pdf_path = f"{run_dir}/{pdf_filename}"
+                    text = self.processor.extract_text(pdf_path)
+                    print(f"  Extracted {len(text)} characters")
+                    result["text_extracted"] = len(text) > 0
+                    result["text_length"] = len(text)
 
-            if self.processor.download_pdf(pub.pdf_url, pdf_path):
-                print(f"  Downloaded to {pdf_path}")
-                result["pdf_downloaded"] = True
-                result["pdf_path"] = pdf_path
+                    # Check for Stony Brook content
+                    check = self.validator.check_stonybrook_content(text)
+                    print(f"  Stony Brook mentions: {check['count']}")
+                    if check["found"]:
+                        print(f"  Context: {check['contexts'][0]}")
+                    result["stonybrook_validation"] = check
 
-                text = self.processor.extract_text(pdf_path)
-                print(f"  Extracted {len(text)} characters")
-                result["text_extracted"] = len(text) > 0
-                result["text_length"] = len(text)
+                    # Summarize (if enabled)
+                    if config.pdf.summarization_enabled:
+                        summary = self.processor.summarize_text(text)
+                        if summary:
+                            print(f"  Summary: {summary}")
+                            result["summary"] = summary
+            else:
+                print("  PDF downloads disabled - collecting metadata only")
 
-                # Check for Stony Brook content
-                check = self.validator.check_stonybrook_content(text)
-                print(f"  Stony Brook mentions: {check['count']}")
-                if check["found"]:
-                    print(f"  Context: {check['contexts'][0]}")
-                result["stonybrook_validation"] = check
-
-                # Summarize (if enabled)
-                if config.pdf.summarization_enabled:
-                    summary = self.processor.summarize_text(text)
-                    if summary:
-                        print(f"  Summary: {summary}")
-                        result["summary"] = summary
-
+        elif pub.pdf_url is None:
+            print("  PDF: Not available ✗")
         else:
             print("  PDF: Not available ✗")
 
@@ -167,18 +172,19 @@ class ResearchPipeline:
             # Rate limiting
             time.sleep(1)
 
-        # Export results to JSON
-        print("\n[EXPORTING RESULTS]")
-        full_results_path = self.exporter.save_json()
-        summary_path = self.exporter.save_authors_summary()
+        # Finalize and save export statistics
+        print("\n[FINALIZING EXPORT]")
+        stats_path = self.exporter.save_stats()
         stats = self.exporter.get_stats()
-
-        print("\nResults exported to:")
-        print(f"  Full results: {full_results_path}")
-        print(f"  Authors summary: {summary_path}")
+        self.exporter.close()
+        
+        print(f"\nResults exported to:")
+        print(f"  Authors: {self.exporter.authors_file_path}")
+        print(f"  Publications: {self.exporter.publications_file_path}")
+        print(f"  Statistics: {stats_path}")
         print(f"  Run directory: {self.exporter.get_run_directory()}")
-
-        print("\nProcessing Statistics:")
+        
+        print(f"\nProcessing Statistics:")
         print(f"  Authors processed: {stats['total_authors']}")
         print(f"  Publications found: {stats['total_publications']}")
         print(f"  PDFs downloaded: {stats['pdfs_downloaded']}")
