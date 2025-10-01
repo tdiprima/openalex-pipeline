@@ -1,80 +1,87 @@
 # 📚 OpenAlex Pipeline
 
-## 📝 What's this?
+## 📝 Overview
 
 Python tool to:
 
-* 🔎 Query OpenAlex for **ExampleOrg** researchers
-* 📄 Download + scan PDFs for affiliation mentions
+* 🔎 Query OpenAlex API for **ExampleOrg** researchers
+* 📄 Download + scan PDFs for affiliations
 * 🤖 (Optional) Summarize w/ AI
+* 📊 Export structured results (JSONL)
 
 ## ⚡ Setup
 
 ```bash
-# See setup.sh
 python3.9 -m venv .venv  
 source .venv/bin/activate  
 pip install -r requirements.txt
 ```
 
-Core deps:
+### Core Deps
 
-* 🌐 `requests` (API calls)
-* 📄 `pdfplumber`, `PyPDF2` (PDF text)
-* 🔍 `pdf2image`, `pytesseract` (OCR, optional)
-* 🤖 `transformers`, `torch` (AI summary, optional)
+* 🌐 `requests` → API calls
+* ⚡ `orjson` → fast JSON export
+* 📄 `pdfplumber`, `PyPDF2` → text extraction
+* 🖼️ `pdf2image`, `pytesseract`, `pillow` → OCR (optional)
+* 🤖 `transformers`, `torch` → AI summaries (optional)
 
-## ▶️ Run it
+## ▶️ Run It
 
 ```bash
 source .venv/bin/activate  
 
-# Defaults: 3 authors, 2 pubs
+# Default (3 authors, 2 pubs)
 python main.py --email you@email  
 
-# Custom params
+# Custom run
 python main.py --email you@email --authors 5 --pubs 3
+
+
+# Skip PDF downloads (metadata only - much faster for large datasets)
+python main.py --email your@email.com --authors 40000 --pubs 10 --no-pdf
 ```
 
 ## ⚙️ Env Vars
 
-* `EMAIL` → OpenAlex polite pool
+* `EMAIL` → OpenAlex polite pool (faster)
 * `ENABLE_OCR=true` → OCR mode
 * `ENABLE_SUMMARIZATION=true` → AI summaries
-* `NUM_AUTHORS`, `NUM_PUBS` → defaults
-* `OUTPUT_DIR` → download path (default: `./output`)
+* `OUTPUT_DIR` → output folder (default: `./output`)
+* `NUM_AUTHORS`, `NUM_PUBS`, `VERBOSE` → tuning
+* `ENABLE_PDF_DOWNLOAD`: Set to "false" to skip PDF downloads
 
-### Enabling/Disabling AI Summarization
+## 📂 Output
+
+After each run → timestamped dir:
+
+* 📜 `authors.jsonl` → 1 author per line
+* 📜 `publications.jsonl` → 1 pub per line
+* 📊 `run_stats.json` → stats + metadata
+* 📄 `paper_*.pdf` → downloaded PDFs (if enabled)
+
+Quick queries:
 
 ```bash
-# Enable summarization (requires transformers and torch installed)
-export ENABLE_SUMMARIZATION=true
-python main.py --email your@email.com
-
-# Disable summarization (default)
-export ENABLE_SUMMARIZATION=false
-# or simply omit the environment variable
-python main.py --email your@email.com
+jq 'select(.cited_by_count > 1000)' authors.jsonl   # top authors
+jq 'select(.processing.ExampleOrg_validation.found == true)' publications.jsonl
 ```
 
-## 🏗️ Core pieces
+## 🏗️ Core Files
 
-* **pipeline.py** → main flow
-* **api_client.py** → OpenAlex calls
-* **pdf_processor.py** → extract + OCR + summarize
-* **content_validator.py** → checks for "ExampleOrg" etc
-* **config.py** → env + defaults
+* `pipeline.py` → orchestrator
+* `api_client.py` → OpenAlex calls
+* `pdf_processor.py` → text + OCR + summaries
+* `content_validator.py` → checks ExampleOrg mentions
+* `data_exporter_streaming.py` → JSONL export
 
-## 🔄 Data flow
+## 🔄 Data Flow
 
-1. 📡 Grab ExampleOrg authors (by citations)
-2. 📚 Get pubs (latest first)
-3. 📥 Download OA PDFs
+1. 📡 Get authors (by citations)
+2. 📚 Fetch pubs (latest first)
+3. 📥 Download PDFs
 4. 📄 Extract text (plumber → PyPDF2 → OCR)
-5. 🕵 Validate mentions
-6. 🤖 Summarize (if enabled)
-7. 📊 Output results
-
-**JSON Export**: `orjson` for efficient JSON serialization (fallback to standard `json`)
+5. 🕵 Validate SB mentions
+6. 🤖 Summarize (optional)
+7. 📊 Export JSONL + stats
 
 <br>

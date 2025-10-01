@@ -1,6 +1,6 @@
 """
 Main entry point for the OpenAlex research pipeline.
-python main.py --email your@email.com --authors 5 --pubs 3
+python main.py --email your@email.com --authors 5 --pubs 3 --no-pdf
 """
 
 import argparse
@@ -33,12 +33,23 @@ def main():
         default=2,
         help="Number of publications per author (default: 2)",
     )
+    parser.add_argument(
+        "--no-pdf",
+        action="store_true",
+        help="Skip PDF downloads (metadata only)",
+    )
 
     args = parser.parse_args()
+    
+    # Override PDF download setting if --no-pdf is specified
+    from config import config
+    if args.no_pdf:
+        config.pdf.download_enabled = False
 
     print("Starting pipeline...")
     print(f"Configuration: {args.authors} authors, {args.pubs} publications each")
     print(f"Email: {args.email}")
+    print(f"PDF downloads: {'Disabled' if args.no_pdf else 'Enabled'}")
 
     # Create and run pipeline
     pipeline = ResearchPipeline(email=args.email)
