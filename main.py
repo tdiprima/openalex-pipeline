@@ -1,5 +1,6 @@
 """
 Main entry point for the OpenAlex research pipeline.
+python main.py --email your@email.com --authors 5 --pubs 3
 """
 
 import argparse
