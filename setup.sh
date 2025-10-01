@@ -24,3 +24,6 @@ pip install transformers
 
 # Finally, OCR libraries if needed
 pip install pdf2image pytesseract pillow
+
+# Note: Tesseract binary also needed for OCR
+# Mac: brew install tesseract
