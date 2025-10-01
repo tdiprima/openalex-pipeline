@@ -74,7 +74,9 @@ class Config:
         self.api.email = os.getenv("OPENALEX_EMAIL", self.api.email)
 
         # PDF configuration
-        self.pdf.download_enabled = os.getenv("ENABLE_PDF_DOWNLOAD", "true").lower() == "true"
+        self.pdf.download_enabled = (
+            os.getenv("ENABLE_PDF_DOWNLOAD", "true").lower() == "true"
+        )
         self.pdf.ocr_enabled = os.getenv("ENABLE_OCR", "false").lower() == "true"
         self.pdf.summarization_enabled = (
             os.getenv("ENABLE_SUMMARIZATION", "false").lower() == "true"

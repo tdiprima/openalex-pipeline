@@ -40,9 +40,10 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     # Override PDF download setting if --no-pdf is specified
     from config import config
+
     if args.no_pdf:
         config.pdf.download_enabled = False
 

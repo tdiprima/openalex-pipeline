@@ -3,17 +3,18 @@ Memory-efficient data export module for saving pipeline results using streaming 
 Designed to handle large datasets (40k+ authors) without memory issues.
 """
 
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # JSON handling with fallback
 try:
     import orjson
+
     JSON_LIB = "orjson"
 except ImportError:
     import json
+
     JSON_LIB = "json"
     print("orjson not available, using standard json (install: pip install orjson)")
 
@@ -26,40 +27,40 @@ class StreamingDataExporter:
     def __init__(self, output_dir: str = "./output"):
         """
         Initialize streaming exporter.
-        
+
         Args:
             output_dir: Directory to save exported files
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
-        
+
         # Create timestamped run directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_dir = self.output_dir / f"run_{timestamp}"
         self.run_dir.mkdir(exist_ok=True)
-        
+
         # Lightweight metadata (no bulk data storage)
         self.metadata = {
             "timestamp": datetime.now().isoformat(),
             "json_library": JSON_LIB,
             "pipeline_version": "1.0",
-            "format": "JSONL (JSON Lines)"
+            "format": "JSONL (JSON Lines)",
         }
-        
+
         self.processing_stats = {
             "total_authors": 0,
             "total_publications": 0,
             "pdfs_downloaded": 0,
             "stonybrook_mentions_found": 0,
             "summaries_generated": 0,
-            "start_time": datetime.now().isoformat()
+            "start_time": datetime.now().isoformat(),
         }
-        
+
         # Initialize streaming files
         self.authors_file_path = self.run_dir / "authors.jsonl"
         self.publications_file_path = self.run_dir / "publications.jsonl"
         self.stats_file_path = self.run_dir / "run_stats.json"
-        
+
         self.authors_file = None
         self.publications_file = None
         self._initialize_files()
@@ -67,8 +68,10 @@ class StreamingDataExporter:
     def _initialize_files(self):
         """Initialize JSONL files for streaming writes"""
         try:
-            self.authors_file = open(self.authors_file_path, 'w', encoding='utf-8')
-            self.publications_file = open(self.publications_file_path, 'w', encoding='utf-8')
+            self.authors_file = open(self.authors_file_path, "w", encoding="utf-8")
+            self.publications_file = open(
+                self.publications_file_path, "w", encoding="utf-8"
+            )
             print(f"Initialized streaming export to: {self.run_dir}")
         except Exception as e:
             print(f"Error initializing export files: {e}")
@@ -78,22 +81,26 @@ class StreamingDataExporter:
         """Write a single JSON line to file (JSONL format)"""
         try:
             if JSON_LIB == "orjson":
-                line = orjson.dumps(data).decode('utf-8')
+                line = orjson.dumps(data).decode("utf-8")
             else:
                 line = json.dumps(data, ensure_ascii=False, default=str)
-            file_handle.write(line + '\n')
+            file_handle.write(line + "\n")
             file_handle.flush()  # Ensure immediate write to disk
         except Exception as e:
             print(f"Error writing JSON line: {e}")
 
-    def add_author(self, author: Author, publications: List[Publication], 
-                   processing_results: List[Dict[str, Any]]):
+    def add_author(
+        self,
+        author: Author,
+        publications: List[Publication],
+        processing_results: List[Dict[str, Any]],
+    ):
         """
         Stream author and publication data directly to files (memory efficient).
-        
+
         Args:
             author: Author object
-            publications: List of Publication objects  
+            publications: List of Publication objects
             processing_results: List of processing results for each publication
         """
         # Author summary record (lightweight)
@@ -104,15 +111,17 @@ class StreamingDataExporter:
             "cited_by_count": author.cited_by_count,
             "affiliations": author.affiliations,
             "publications_processed": len(publications),
-            "processing_timestamp": datetime.now().isoformat()
+            "processing_timestamp": datetime.now().isoformat(),
         }
 
         # Process publications and collect summary stats
         pdfs_found = 0
         stonybrook_mentions = 0
         summaries_generated = 0
-        
-        for pub_idx, (pub, result) in enumerate(zip(publications, processing_results), 1):
+
+        for pub_idx, (pub, result) in enumerate(
+            zip(publications, processing_results), 1
+        ):
             # Create detailed publication record
             pub_record = {
                 "id": pub.id,
@@ -134,10 +143,10 @@ class StreamingDataExporter:
                     "text_length": result.get("text_length", 0),
                     "stonybrook_validation": result.get("stonybrook_validation", {}),
                     "summary": result.get("summary"),
-                    "processing_timestamp": result.get("timestamp")
-                }
+                    "processing_timestamp": result.get("timestamp"),
+                },
             }
-            
+
             # Write publication record immediately (streaming)
             self._write_json_line(self.publications_file, pub_record)
 
@@ -153,12 +162,14 @@ class StreamingDataExporter:
                 self.processing_stats["summaries_generated"] += 1
 
         # Add summary stats to author record
-        author_record.update({
-            "pdfs_found": pdfs_found,
-            "stonybrook_mentions": stonybrook_mentions,
-            "summaries_generated": summaries_generated
-        })
-        
+        author_record.update(
+            {
+                "pdfs_found": pdfs_found,
+                "stonybrook_mentions": stonybrook_mentions,
+                "summaries_generated": summaries_generated,
+            }
+        )
+
         # Write author record immediately (streaming)
         self._write_json_line(self.authors_file, author_record)
 
@@ -169,29 +180,29 @@ class StreamingDataExporter:
     def save_stats(self) -> str:
         """
         Save final processing statistics.
-        
+
         Returns:
             Path to the stats file
         """
         self.processing_stats["end_time"] = datetime.now().isoformat()
-        
+
         final_stats = {
             "metadata": self.metadata,
             "processing_stats": self.processing_stats,
             "files": {
                 "authors": str(self.authors_file_path),
                 "publications": str(self.publications_file_path),
-                "total_size_mb": self._calculate_total_size()
-            }
+                "total_size_mb": self._calculate_total_size(),
+            },
         }
-        
+
         if JSON_LIB == "orjson":
             with open(self.stats_file_path, "wb") as f:
                 f.write(orjson.dumps(final_stats, option=orjson.OPT_INDENT_2))
         else:
             with open(self.stats_file_path, "w", encoding="utf-8") as f:
                 json.dump(final_stats, f, indent=2, ensure_ascii=False, default=str)
-        
+
         return str(self.stats_file_path)
 
     def _calculate_total_size(self) -> float:
