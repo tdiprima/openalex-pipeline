@@ -131,12 +131,14 @@ class PDFProcessor:
         """Summarize text using language model"""
         if not LLM_AVAILABLE or len(text) < 200:
             return None
-            
+
         # Lazy load the model on first use
         if self.summarizer is None:
             try:
                 print("Loading summarization model (this may take a moment)...")
-                self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+                self.summarizer = pipeline(
+                    "summarization", model="facebook/bart-large-cnn"
+                )
             except Exception as e:
                 print(f"  Failed to load summarization model: {e}")
                 return None

@@ -1,5 +1,6 @@
 # Core requirements
 requests>=2.31.0
+orjson>=3.8.0
 
 # PDF processing
 PyPDF2>=3.0.0

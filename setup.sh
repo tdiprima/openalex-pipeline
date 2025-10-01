@@ -10,7 +10,7 @@ python3.9 -m venv .venv  # or python3.10
 source .venv/bin/activate
 
 # Install core requirements first
-pip install requests PyPDF2 pdfplumber
+pip install requests PyPDF2 pdfplumber orjson
 
 # Then install torch (if needed) - use the right command for your system
 # CPU only (smaller, easier):

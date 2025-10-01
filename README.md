@@ -75,4 +75,6 @@ python main.py --email your@email.com
 6. 🤖 Summarize (if enabled)
 7. 📊 Output results
 
+**JSON Export**: `orjson` for efficient JSON serialization (fallback to standard `json`)
+
 <br>
