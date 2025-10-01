@@ -5,6 +5,7 @@ Shows how to connect authors.jsonl and publications.jsonl files.
 """
 
 import json
+import operator
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
@@ -104,7 +105,7 @@ def example_queries(run_directory: str):
     print("\n6. MOST PRODUCTIVE AUTHORS (by citations)")
     print("-" * 30)
     sorted_authors = sorted(
-        authors.values(), key=lambda x: x["cited_by_count"], reverse=True
+        authors.values(), key=operator.itemgetter("cited_by_count"), reverse=True
     )
     for author in sorted_authors[:10]:  # Top 10
         print(

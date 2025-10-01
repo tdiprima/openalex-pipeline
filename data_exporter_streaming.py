@@ -68,9 +68,9 @@ class StreamingDataExporter:
     def _initialize_files(self):
         """Initialize JSONL files for streaming writes"""
         try:
-            self.authors_file = open(self.authors_file_path, "w", encoding="utf-8")
-            self.publications_file = open(
-                self.publications_file_path, "w", encoding="utf-8"
+            self.authors_file = self.authors_file_path.open("w", encoding="utf-8")
+            self.publications_file = self.publications_file_path.open(
+                "w", encoding="utf-8"
             )
             print(f"Initialized streaming export to: {self.run_dir}")
         except Exception as e:
@@ -197,10 +197,11 @@ class StreamingDataExporter:
         }
 
         if JSON_LIB == "orjson":
-            with open(self.stats_file_path, "wb") as f:
-                f.write(orjson.dumps(final_stats, option=orjson.OPT_INDENT_2))
+            self.stats_file_path.write_bytes(
+                orjson.dumps(final_stats, option=orjson.OPT_INDENT_2)
+            )
         else:
-            with open(self.stats_file_path, "w", encoding="utf-8") as f:
+            with self.stats_file_path.open("w", encoding="utf-8") as f:
                 json.dump(final_stats, f, indent=2, ensure_ascii=False, default=str)
 
         return str(self.stats_file_path)
@@ -208,7 +209,7 @@ class StreamingDataExporter:
     def _calculate_total_size(self) -> float:
         """Calculate total size of output files in MB"""
         total_size = 0
-        for file_path in [self.authors_file_path, self.publications_file_path]:
+        for file_path in (self.authors_file_path, self.publications_file_path):
             if file_path.exists():
                 total_size += file_path.stat().st_size
         return round(total_size / (1024 * 1024), 2)  # Convert to MB
