@@ -1,6 +1,6 @@
 """
 Parallel-optimized pipeline for high-performance author and publication processing.
-Designed for 72-core machines with GPU acceleration.
+Designed for 64-core machines with GPU acceleration.
 """
 
 import asyncio
@@ -32,7 +32,7 @@ class ParallelResearchPipeline:
 
         # Optimize for API rate limits (very conservative)
         if max_workers is None:
-            max_workers = min(2, mp.cpu_count())  # Very conservative for API limits
+            max_workers = min(64, mp.cpu_count())  # Optimized for 64-core machines
         self.max_workers = max_workers
 
         # Initialize components (one per process will be created)
@@ -118,7 +118,7 @@ class ParallelResearchPipeline:
             # For PDF-enabled processing, use ThreadPoolExecutor for concurrent downloads
             if config.pdf.download_enabled:
                 with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=2  # Reduced to be more conservative with API calls
+                    max_workers=8  # Balanced for PDF processing
                 ) as pdf_executor:
                     future_to_pub = {
                         pdf_executor.submit(
