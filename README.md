@@ -45,8 +45,8 @@ python main.py --email you@email
 python main.py --email you@email --authors 5 --pubs 3
 
 
-# Skip PDF downloads (metadata only - much faster for large datasets)
-python main.py --email your@email.com --authors 40000 --pubs 10 --no-pdf
+# Enable PDF downloads (disabled by default for faster processing)
+python main.py --email your@email.com --authors 40000 --pubs 10 --pdf
 ```
 
 ## ⚙️ Env Vars
@@ -56,7 +56,7 @@ python main.py --email your@email.com --authors 40000 --pubs 10 --no-pdf
 * `ENABLE_SUMMARIZATION=true` → AI summaries
 * `OUTPUT_DIR` → output folder (default: `./output`)
 * `NUM_AUTHORS`, `NUM_PUBS`, `VERBOSE` → tuning
-* `ENABLE_PDF_DOWNLOAD`: Set to "false" to skip PDF downloads
+* `ENABLE_PDF_DOWNLOAD`: Set to "true" to enable PDF downloads (disabled by default)
 
 ## 📂 Output
 

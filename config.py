@@ -54,7 +54,7 @@ class PipelineConfig:
     default_num_pubs: int = 2
     rate_limit_delay: float = 1.0  # seconds between API calls
     output_directory: str = "./output"
-    save_pdfs: bool = True
+    save_pdfs: bool = False
     verbose: bool = True
 
 
@@ -77,7 +77,7 @@ class Config:
 
         # PDF configuration
         self.pdf.download_enabled = (
-            os.getenv("ENABLE_PDF_DOWNLOAD", "true").lower() == "true"
+            os.getenv("ENABLE_PDF_DOWNLOAD", "false").lower() == "true"
         )
         self.pdf.ocr_enabled = os.getenv("ENABLE_OCR", "false").lower() == "true"
         self.pdf.summarization_enabled = (
