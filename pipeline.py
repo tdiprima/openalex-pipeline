@@ -25,7 +25,11 @@ class ResearchPipeline:
         self.api = OpenAlexAPI(email=email)
         self.processor = PDFProcessor()
         self.validator = ContentValidator()
-        self.exporter = DataExporter(output_dir=config.pipeline.output_directory)
+        self.exporter = DataExporter(
+            output_dir=config.pipeline.output_directory,
+            compress=True,
+            chunk_size=1000
+        )
 
     def process_author(self, author, num_pubs: int = 2):
         """
