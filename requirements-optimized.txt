@@ -11,7 +11,7 @@ aiohttp>=3.8.0          # Async HTTP requests
 aiofiles>=23.0.0        # Async file operations
 
 # Optional: GPU acceleration for text processing
-torch>=2.0.1         # Uncomment if using GPU for summarization
+torch>=2.8.0         # Uncomment if using GPU for summarization
 transformers>=4.56.2 # Uncomment if using GPU for summarization
 
 # Optional: Advanced text processing
