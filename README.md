@@ -47,6 +47,9 @@ python main.py --email you@email --authors 5 --pubs 3
 
 # Enable PDF downloads (disabled by default for faster processing)
 python main.py --email your@email.com --authors 40000 --pubs 10 --pdf
+
+# Enable the OCR and AI summarization features
+ENABLE_OCR=true ENABLE_SUMMARIZATION=true python main.py --email your@email.com --pdf
 ```
 
 ## ⚙️ Env Vars
