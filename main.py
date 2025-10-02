@@ -33,9 +33,9 @@ def main():
         help="Number of publications per author (default: 2)",
     )
     parser.add_argument(
-        "--no-pdf",
+        "--pdf",
         action="store_true",
-        help="Skip PDF downloads (metadata only)",
+        help="Enable PDF downloads (disabled by default)",
     )
     parser.add_argument(
         "--optimized",
@@ -59,13 +59,13 @@ def main():
 
     from config import config
 
-    if args.no_pdf:
-        config.pdf.download_enabled = False
+    if args.pdf:
+        config.pdf.download_enabled = True
 
     print("Starting pipeline...")
     print(f"Configuration: {args.authors} authors, {args.pubs} publications each")
     print(f"Email: {args.email}")
-    print(f"PDF downloads: {'Disabled' if args.no_pdf else 'Enabled'}")
+    print(f"PDF downloads: {'Enabled' if args.pdf else 'Disabled'}")
 
     # Create and run pipeline (parallel if requested)
     if args.parallel:
