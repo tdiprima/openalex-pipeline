@@ -2,10 +2,10 @@
 OpenAlex API client for querying authors and publications.
 """
 
+import time
 from typing import List, Optional
 
 import requests
-from ratelimit import limits, sleep_and_retry
 
 from models import Author, Publication
 
@@ -26,9 +26,17 @@ class OpenAlexAPI:
         self.session = requests.Session()
         if email:
             self.session.params = {"mailto": email}
+        self._last_request_time = 0
+        self._min_delay = 0.1  # 100ms minimum delay between requests
 
-    @sleep_and_retry
-    @limits(calls=10, period=1)  # 10 requests per second for polite pool
+    def _rate_limit(self):
+        """Enforce rate limiting between API calls"""
+        current_time = time.time()
+        time_since_last = current_time - self._last_request_time
+        if time_since_last < self._min_delay:
+            time.sleep(self._min_delay - time_since_last)
+        self._last_request_time = time.time()
+
     def find_stonybrook_authors(self, max_results: int = 25) -> List[Author]:
         """
         Find authors affiliated with Stony Brook University.
@@ -52,6 +60,7 @@ class OpenAlexAPI:
         }
 
         print("Querying OpenAlex for Stony Brook authors...")
+        self._rate_limit()
         response = self.session.get(url, params=params)
         response.raise_for_status()
 
@@ -75,8 +84,6 @@ class OpenAlexAPI:
 
         return authors
 
-    @sleep_and_retry
-    @limits(calls=10, period=1)  # 10 requests per second for polite pool
     def get_author_publications(
         self, author_id: str, max_results: int = 10
     ) -> List[Publication]:
@@ -96,6 +103,7 @@ class OpenAlexAPI:
             "sort": "publication_year:desc",
         }
 
+        self._rate_limit()
         response = self.session.get(url, params=params)
         response.raise_for_status()
 

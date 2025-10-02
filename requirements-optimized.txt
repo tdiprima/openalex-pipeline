@@ -22,4 +22,3 @@ nltk>=3.9.2          # Text processing toolkit
 tqdm>=4.67.1            # Progress bars for long-running operations
 psutil>=7.1.0           # System monitoring
 memory-profiler>=0.61.0 # Memory usage profiling
-ratelimit>=2.2.1        # Rate limiting for API calls
