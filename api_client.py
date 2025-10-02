@@ -27,7 +27,7 @@ class OpenAlexAPI:
         if email:
             self.session.params = {"mailto": email}
         self._last_request_time = 0
-        self._min_delay = 0.1  # 100ms minimum delay between requests
+        self._min_delay = 1.0  # 1 second minimum delay between requests
 
     def _rate_limit(self):
         """Enforce rate limiting between API calls"""
