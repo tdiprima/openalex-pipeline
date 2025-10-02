@@ -1,49 +1,107 @@
-This script provides a query interface for searching through chunked and compressed JSONL (JSON Lines) datasets, specifically designed for academic publication data.
+Here are all the CLI commands you can use:
 
-## What it does:
+## Basic Commands
 
-The script helps you search and analyze a dataset containing:
-- **Authors** (with their information and publication counts)
-- **Publications** (with metadata like titles, years, PDFs, etc.)
+### List All Available Runs
+```bash
+python cli.py --list-runs
+```
+Shows all run directories with their metadata (number of authors, publications, timestamps).
 
-It handles data that's been split into multiple compressed chunk files and lets you query across all of them transparently.
+---
 
-## Key capabilities:
+## Commands for a Specific Run
+All of these require `--run-dir <path>` to specify which run to query:
 
-- **Search authors** by name or ID
-- **Search publications** by title, year, year range, or author
-- **Filter publications** that have PDFs downloaded
-- **Filter publications** mentioning "Stony Brook" in their content
-- **Get statistics** on the entire dataset
-- **Export filtered subsets** to new files
-- **Combine chunks** back into single files
+### Show Dataset Statistics
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --stats
+```
+
+Displays comprehensive statistics including:
+
+- Total authors and publications
+- Publications with PDFs
+- Publications with Stony Brook mentions
+- Authors with Stony Brook mentions
+- Year range covered
+- Top 10 authors by publication count
+
+### Search for Authors by Name
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --author "Einstein"
+```
+
+Case-insensitive substring search for author names.
+
+### Get All Stony Brook Authors
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --stonybrook-authors
+```
+
+Lists all authors who have publications mentioning Stony Brook.
+
+### Find Publications by Year
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --year 2023
+```
+
+Shows publications from a specific year (displays first 10).
+
+### Combine All Chunks into Single File
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --combine
+```
+
+Merges all publication chunk files into one `all_publications.jsonl` file.
+
+---
+
+## Combining Multiple Options
+You can combine options in a single command:
+
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --stats --author "Smith" --stonybrook-authors
+```
+
+This would show statistics, search for authors named "Smith", AND list all Stony Brook authors.
+
+---
+
+## Get Help
+
+```bash
+python cli.py --help
+```
+
+Shows all available options and their descriptions.
+
+---
 
 ## Can you get all Stony Brook authors?
 
-**Not directly with a single method**, but you can do it in two steps:
+## Command Line Method
 
-1. Get all publications with Stony Brook mentions using `get_publications_with_stonybrook_mentions()`
-2. Extract the unique author IDs from those publications
-3. Look up those authors using `get_author_by_id()`
-
-The script has `get_publications_with_stonybrook_mentions()` but doesn't have a corresponding `get_authors_with_stonybrook_mentions()` method. However, you could easily add one or write a small script that:
-
-```python
-query = DatasetQuery("./output/run_XXXXX")
-
-# Get all Stony Brook author IDs
-stonybrook_author_ids = set()
-for pub in query.get_publications_with_stonybrook_mentions():
-    author_id = pub.get('author_id')
-    if author_id:
-        stonybrook_author_ids.add(author_id)
-
-# Get author details
-for author_id in stonybrook_author_ids:
-    author = query.get_author_by_id(author_id)
-    print(author)
+```bash
+python cli.py --run-dir ./output/run_20231002_143022 --stonybrook-authors
 ```
 
-Would you like me to create a helper script or modify this one to add that functionality?
+## Python Script Method
+
+If you want to use it in your own Python code:
+
+```python
+from dataset_query import DatasetQuery
+
+# Initialize query for your run
+query = DatasetQuery("./output/run_20231002_143022")
+
+# Get all Stony Brook authors
+for author in query.get_authors_with_stonybrook_mentions():
+    print(f"{author['name']}: {author.get('works_count')} works")
+    print(f"  ID: {author.get('id')}")
+    print(f"  Institution: {author.get('last_known_institution')}")
+    print()
+```
 
 <br>

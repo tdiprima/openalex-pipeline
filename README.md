@@ -84,4 +84,28 @@ jq 'select(.processing.stonybrook_validation.found == true)' publications.jsonl
 6. 🤖 Summarize (optional)
 7. 📊 Export JSONL + stats
 
+---
+
+To get truly "all" authors:
+
+```sh
+# Very large dataset (be careful!)
+python main.py --email your@email.com --authors 50000 --pubs 500 --optimized --parallel
+```
+
+Safe recommendations:
+
+```sh
+# Test run
+python main.py --email your@email.com --authors 100 --pubs 10 --optimized --parallel
+
+# Medium scale
+python main.py --email your@email.com --authors 1000 --pubs 25 --optimized --parallel
+
+# Large scale (might take hours)
+python main.py --email your@email.com --authors 10000 --pubs 50 --optimized --parallel
+```
+
+The OpenAlex API doesn't have a true "get all authors" option - you specify a max number. For Stony Brook, there are likely 5,000-15,000 total authors in their database.
+
 <br>
