@@ -5,6 +5,7 @@ OpenAlex API client for querying authors and publications.
 from typing import List, Optional
 
 import requests
+from ratelimit import limits, sleep_and_retry
 
 from models import Author, Publication
 
@@ -26,6 +27,8 @@ class OpenAlexAPI:
         if email:
             self.session.params = {"mailto": email}
 
+    @sleep_and_retry
+    @limits(calls=10, period=1)  # 10 requests per second for polite pool
     def find_stonybrook_authors(self, max_results: int = 25) -> List[Author]:
         """
         Find authors affiliated with Stony Brook University.
@@ -72,6 +75,8 @@ class OpenAlexAPI:
 
         return authors
 
+    @sleep_and_retry
+    @limits(calls=10, period=1)  # 10 requests per second for polite pool
     def get_author_publications(
         self, author_id: str, max_results: int = 10
     ) -> List[Publication]:
