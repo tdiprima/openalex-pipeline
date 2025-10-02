@@ -10,7 +10,7 @@ from file_io import write_jsonl_file
 from run_manager import RunManager
 
 
-def query_latest_run(output_dir: str = "./output") -> Optional[DatasetQuery]:
+def query_latest_run(output_dir: str = "../output") -> Optional[DatasetQuery]:
     """
     Quick access to the latest run.
 
