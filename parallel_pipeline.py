@@ -30,9 +30,9 @@ class ParallelResearchPipeline:
         """
         self.email = email
 
-        # Optimize for 32-core machine
+        # Optimize for API rate limits (max 10 concurrent requests)
         if max_workers is None:
-            max_workers = min(32, mp.cpu_count())
+            max_workers = min(8, mp.cpu_count())  # Reduced to respect API limits
         self.max_workers = max_workers
 
         # Initialize components (one per process will be created)
@@ -118,7 +118,7 @@ class ParallelResearchPipeline:
             # For PDF-enabled processing, use ThreadPoolExecutor for concurrent downloads
             if config.pdf.download_enabled:
                 with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=4
+                    max_workers=2  # Reduced to be more conservative with API calls
                 ) as pdf_executor:
                     future_to_pub = {
                         pdf_executor.submit(

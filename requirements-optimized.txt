@@ -1,24 +1,25 @@
 # Optimized dependencies for high-performance pipeline
 
 # Core dependencies
-requests>=2.31.0
+requests>=2.32.5
 PyPDF2>=3.0.1
 
 # Performance optimizations
-orjson>=3.9.0          # Fast JSON serialization (5-10x faster than standard json)
-uvloop>=0.17.0         # Fast asyncio event loop (Unix only)
-aiohttp>=3.8.0         # Async HTTP requests
-aiofiles>=23.0.0       # Async file operations
+orjson>=3.11.3          # Fast JSON serialization (5-10x faster than standard json)
+uvloop>=0.17.0          # Fast asyncio event loop (Unix only)
+aiohttp>=3.8.0          # Async HTTP requests
+aiofiles>=23.0.0        # Async file operations
 
 # Optional: GPU acceleration for text processing
-# torch>=2.0.0         # Uncomment if using GPU for summarization
-# transformers>=4.30.0 # Uncomment if using GPU for summarization
+torch>=2.0.1         # Uncomment if using GPU for summarization
+transformers>=4.56.2 # Uncomment if using GPU for summarization
 
 # Optional: Advanced text processing
-# spacy>=3.6.0         # Fast NLP processing
-# nltk>=3.8.0          # Text processing toolkit
+spacy>=3.8.7         # Fast NLP processing
+nltk>=3.9.2          # Text processing toolkit
 
 # Development and monitoring
-tqdm>=4.65.0           # Progress bars for long-running operations
-psutil>=5.9.0          # System monitoring
+tqdm>=4.67.1            # Progress bars for long-running operations
+psutil>=7.1.0           # System monitoring
 memory-profiler>=0.61.0 # Memory usage profiling
+ratelimit>=2.2.1        # Rate limiting for API calls

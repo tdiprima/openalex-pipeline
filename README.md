@@ -25,6 +25,14 @@ pip install -r requirements.txt
 * 🖼️ `pdf2image`, `pytesseract`, `pillow` → OCR (optional)
 * 🤖 `transformers`, `torch` → AI summaries (optional)
 
+```sh
+# MacOS
+brew install tesseract
+
+# Rocky Linux
+sudo dnf install -y tesseract tesseract-langpack-eng
+```
+
 ## ▶️ Run It
 
 ```bash
