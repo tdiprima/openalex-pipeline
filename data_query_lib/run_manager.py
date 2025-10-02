@@ -14,7 +14,7 @@ from dataset_query import DatasetQuery
 class RunManager:
     """Manage multiple pipeline runs"""
 
-    def __init__(self, output_directory: str = "./output"):
+    def __init__(self, output_directory: str = "../output"):
         """
         Initialize run manager.
 
