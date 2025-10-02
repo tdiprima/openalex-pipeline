@@ -35,7 +35,7 @@ class OpenAlexAPI:
     def _rate_limit(self):
         """Enforce global rate limiting between API calls across all threads"""
         global _last_request_time
-        min_delay = 1.5  # 1.5 seconds between any API calls globally
+        min_delay = 1.0  # seconds between any API calls globally
         
         with _rate_limit_lock:
             current_time = time.time()
