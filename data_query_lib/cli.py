@@ -3,10 +3,10 @@ Command-line interface for querying datasets.
 
 Usage examples:
   python cli.py --list-runs
-  python cli.py --run-dir ./output/run_20231002_143022 --stats
-  python cli.py --run-dir ./output/run_20231002_143022 --author "Einstein"
-  python cli.py --run-dir ./output/run_20231002_143022 --stonybrook-authors
-  python cli.py --run-dir ./output/run_20231002_143022 --combine
+  python cli.py --run-dir ./output/run_20251002_125219 --stats
+  python cli.py --run-dir ./output/run_20251002_125219 --author "Einstein"
+  python cli.py --run-dir ./output/run_20251002_125219 --stonybrook-authors
+  python cli.py --run-dir ./output/run_20251002_125219 --combine
 """
 
 import argparse
