@@ -2,12 +2,17 @@
 OpenAlex API client for querying authors and publications.
 """
 
+import threading
 import time
 from typing import List, Optional
 
 import requests
 
 from models import Author, Publication
+
+# Global rate limiter for all API instances
+_rate_limit_lock = threading.Lock()
+_last_request_time = 0
 
 
 class OpenAlexAPI:
@@ -26,16 +31,19 @@ class OpenAlexAPI:
         self.session = requests.Session()
         if email:
             self.session.params = {"mailto": email}
-        self._last_request_time = 0
-        self._min_delay = 1.0  # 1 second minimum delay between requests
 
     def _rate_limit(self):
-        """Enforce rate limiting between API calls"""
-        current_time = time.time()
-        time_since_last = current_time - self._last_request_time
-        if time_since_last < self._min_delay:
-            time.sleep(self._min_delay - time_since_last)
-        self._last_request_time = time.time()
+        """Enforce global rate limiting between API calls across all threads"""
+        global _last_request_time
+        min_delay = 1.5  # 1.5 seconds between any API calls globally
+        
+        with _rate_limit_lock:
+            current_time = time.time()
+            time_since_last = current_time - _last_request_time
+            if time_since_last < min_delay:
+                sleep_time = min_delay - time_since_last
+                time.sleep(sleep_time)
+            _last_request_time = time.time()
 
     def find_stonybrook_authors(self, max_results: int = 25) -> List[Author]:
         """
