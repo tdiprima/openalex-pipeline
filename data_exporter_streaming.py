@@ -3,6 +3,7 @@ Memory-efficient data export module for saving pipeline results using streaming 
 Designed to handle large datasets (40k+ authors) without memory issues.
 """
 
+import gzip
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -24,15 +25,21 @@ from models import Author, Publication
 class StreamingDataExporter:
     """Memory-efficient exporter using JSONL streaming writes"""
 
-    def __init__(self, output_dir: str = "./output"):
+    def __init__(self, output_dir: str = "./output", compress: bool = True, chunk_size: int = 1000):
         """
         Initialize streaming exporter.
 
         Args:
             output_dir: Directory to save exported files
+            compress: Whether to compress output files (default: True)
+            chunk_size: Number of records per chunk for large datasets (default: 1000)
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self.compress = compress
+        self.chunk_size = chunk_size
+        self.current_chunk = 0
+        self.records_in_chunk = 0
 
         # Create timestamped run directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -56,23 +63,32 @@ class StreamingDataExporter:
             "start_time": datetime.now().isoformat(),
         }
 
-        # Initialize streaming files
-        self.authors_file_path = self.run_dir / "authors.jsonl"
-        self.publications_file_path = self.run_dir / "publications.jsonl"
+        # Initialize streaming files with compression support
+        ext = ".jsonl.gz" if self.compress else ".jsonl"
+        self.authors_file_path = self.run_dir / f"authors{ext}"
+        self.publications_file_path = self.run_dir / f"publications_chunk_{self.current_chunk:04d}{ext}"
         self.stats_file_path = self.run_dir / "run_stats.json"
+        
+        # Track all publication files for chunking
+        self.publication_files = []
 
         self.authors_file = None
         self.publications_file = None
         self._initialize_files()
 
     def _initialize_files(self):
-        """Initialize JSONL files for streaming writes"""
+        """Initialize JSONL files for streaming writes with compression support"""
         try:
-            self.authors_file = self.authors_file_path.open("w", encoding="utf-8")
-            self.publications_file = self.publications_file_path.open(
-                "w", encoding="utf-8"
-            )
-            print(f"Initialized streaming export to: {self.run_dir}")
+            if self.compress:
+                self.authors_file = gzip.open(self.authors_file_path, "wt", encoding="utf-8")
+                self.publications_file = gzip.open(self.publications_file_path, "wt", encoding="utf-8")
+            else:
+                self.authors_file = self.authors_file_path.open("w", encoding="utf-8")
+                self.publications_file = self.publications_file_path.open("w", encoding="utf-8")
+            
+            self.publication_files.append(self.publications_file_path)
+            compression_status = "compressed" if self.compress else "uncompressed"
+            print(f"Initialized streaming export to: {self.run_dir} ({compression_status})")
         except Exception as e:
             print(f"Error initializing export files: {e}")
             raise
@@ -147,8 +163,13 @@ class StreamingDataExporter:
                 },
             }
 
+            # Check if we need to start a new chunk
+            if self.records_in_chunk >= self.chunk_size:
+                self._rotate_publications_file()
+            
             # Write publication record immediately (streaming)
             self._write_json_line(self.publications_file, pub_record)
+            self.records_in_chunk += 1
 
             # Update statistics
             if result.get("pdf_downloaded"):
@@ -191,7 +212,10 @@ class StreamingDataExporter:
             "processing_stats": self.processing_stats,
             "files": {
                 "authors": str(self.authors_file_path),
-                "publications": str(self.publications_file_path),
+                "publications_chunks": [str(f) for f in self.publication_files],
+                "total_chunks": len(self.publication_files),
+                "compression_enabled": self.compress,
+                "chunk_size": self.chunk_size,
                 "total_size_mb": self._calculate_total_size(),
             },
         }
@@ -206,12 +230,37 @@ class StreamingDataExporter:
 
         return str(self.stats_file_path)
 
+    def _rotate_publications_file(self):
+        """Rotate to a new publications file chunk"""
+        if self.publications_file:
+            self.publications_file.close()
+        
+        self.current_chunk += 1
+        self.records_in_chunk = 0
+        
+        ext = ".jsonl.gz" if self.compress else ".jsonl"
+        self.publications_file_path = self.run_dir / f"publications_chunk_{self.current_chunk:04d}{ext}"
+        
+        if self.compress:
+            self.publications_file = gzip.open(self.publications_file_path, "wt", encoding="utf-8")
+        else:
+            self.publications_file = self.publications_file_path.open("w", encoding="utf-8")
+        
+        self.publication_files.append(self.publications_file_path)
+        print(f"Rotated to new publications chunk: {self.publications_file_path.name}")
+
     def _calculate_total_size(self) -> float:
         """Calculate total size of output files in MB"""
         total_size = 0
-        for file_path in (self.authors_file_path, self.publications_file_path):
-            if file_path.exists():
-                total_size += file_path.stat().st_size
+        # Include authors file
+        if self.authors_file_path.exists():
+            total_size += self.authors_file_path.stat().st_size
+        
+        # Include all publication chunk files
+        for pub_file in self.publication_files:
+            if pub_file.exists():
+                total_size += pub_file.stat().st_size
+        
         return round(total_size / (1024 * 1024), 2)  # Convert to MB
 
     def close(self):
