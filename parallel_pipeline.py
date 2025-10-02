@@ -30,9 +30,9 @@ class ParallelResearchPipeline:
         """
         self.email = email
 
-        # Optimize for API rate limits (max 10 concurrent requests)
+        # Optimize for API rate limits (very conservative)
         if max_workers is None:
-            max_workers = min(8, mp.cpu_count())  # Reduced to respect API limits
+            max_workers = min(2, mp.cpu_count())  # Very conservative for API limits
         self.max_workers = max_workers
 
         # Initialize components (one per process will be created)
