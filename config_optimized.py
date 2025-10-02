@@ -1,5 +1,5 @@
 """
-High-performance configuration for 32-core GPU machines.
+High-performance configuration for 72-core GPU machines.
 Optimized for large-scale Stony Brook dataset processing.
 """
 
@@ -65,10 +65,10 @@ class OptimizedPDFConfig:
 
 @dataclass
 class OptimizedPipelineConfig:
-    """Pipeline configuration optimized for 32-core processing"""
+    """Pipeline configuration optimized for 72-core processing"""
 
     # Parallel processing
-    max_workers: int = 32  # Full CPU utilization
+    max_workers: int = 64  # Optimized for CPU utilization
     batch_size: int = 100  # Authors per batch
     chunk_size: int = 2000  # Records per output file chunk
 

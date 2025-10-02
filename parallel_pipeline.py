@@ -1,6 +1,6 @@
 """
 Parallel-optimized pipeline for high-performance author and publication processing.
-Designed for 32-core machines with GPU acceleration.
+Designed for 72-core machines with GPU acceleration.
 """
 
 import asyncio
