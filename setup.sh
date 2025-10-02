@@ -4,7 +4,7 @@
 python --version
 
 # Create virtual environment with specific Python version
-python3.9 -m venv .venv  # or python3.10
+python3.10 -m venv .venv
 
 # Activate it
 source .venv/bin/activate
