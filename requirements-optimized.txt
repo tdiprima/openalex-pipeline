@@ -13,6 +13,8 @@ aiofiles>=23.0.0        # Async file operations
 # Optional: GPU acceleration for text processing
 torch>=2.8.0         # Uncomment if using GPU for summarization
 transformers>=4.56.2 # Uncomment if using GPU for summarization
+torchaudio>=2.8.0
+torchvision>=0.23.0
 
 # Optional: Advanced text processing
 spacy>=3.8.7         # Fast NLP processing
