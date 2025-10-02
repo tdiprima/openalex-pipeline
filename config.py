@@ -35,7 +35,9 @@ class StonyBrookConfig:
 class PDFConfig:
     """PDF processing configuration"""
 
-    download_enabled: bool = False  # Control PDF downloading - default disabled for large datasets
+    download_enabled: bool = (
+        False  # Control PDF downloading - default disabled for large datasets
+    )
     download_timeout: int = 30
     chunk_size: int = 8192
     ocr_enabled: bool = False

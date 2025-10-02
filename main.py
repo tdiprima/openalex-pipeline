@@ -11,7 +11,7 @@ Safe recommendations:
 # Test run
 python main.py --email your@email.com --authors 100 --pubs 10 --optimized --parallel
 
-# Medium scale  
+# Medium scale
 python main.py --email your@email.com --authors 1000 --pubs 25 --optimized --parallel
 
 # Large scale (might take hours)
@@ -72,9 +72,10 @@ def main():
     # Load configuration (optimized if requested)
     if args.optimized:
         from config_optimized import use_optimized_config
+
         use_optimized_config()
         print("Using optimized configuration for large datasets")
-    
+
     from config import config
 
     if args.no_pdf:
@@ -88,10 +89,13 @@ def main():
     # Create and run pipeline (parallel if requested)
     if args.parallel:
         from parallel_pipeline import ParallelResearchPipeline
+
         pipeline = ParallelResearchPipeline(email=args.email)
         # Use larger defaults for parallel processing
         batch_size = max(50, args.authors // 10)
-        pipeline.run(num_authors=args.authors, num_pubs=args.pubs, batch_size=batch_size)
+        pipeline.run(
+            num_authors=args.authors, num_pubs=args.pubs, batch_size=batch_size
+        )
     else:
         pipeline = ResearchPipeline(email=args.email)
         pipeline.run(num_authors=args.authors, num_pubs=args.pubs)
