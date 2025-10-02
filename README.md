@@ -12,7 +12,7 @@ Python tool to:
 ## ⚡ Setup
 
 ```bash
-python3.9 -m venv .venv  
+python3.10 -m venv .venv  
 source .venv/bin/activate  
 pip install -r requirements.txt
 ```
@@ -116,7 +116,7 @@ python main.py --email your@email.com --authors 10000 --pubs 50 --optimized --pa
 
 The OpenAlex API doesn't have a true "get all authors" option - you specify a max number. For Stony Brook, there are likely 5,000-15,000 total authors in their database.
 
-Ran into issue.  
+❌ Ran into issue.  
 Use `python main.py --optimized` without `--parallel`.
 
 <br>
