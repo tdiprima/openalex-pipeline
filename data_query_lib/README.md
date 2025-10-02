@@ -1,3 +1,27 @@
+This script provides a query interface for searching through chunked and compressed JSONL (JSON Lines) datasets, specifically designed for academic publication data.
+
+## What it does:
+
+The script helps you search and analyze a dataset containing:
+
+- **Authors** (with their information and publication counts)
+- **Publications** (with metadata like titles, years, PDFs, etc.)
+
+It handles data that's been split into multiple compressed chunk files and lets you query across all of them transparently.
+
+## Key capabilities:
+
+- **Search authors** by name or ID
+- **Search publications** by title, year, year range, or author
+- **Filter publications** that have PDFs downloaded
+- **Filter publications** mentioning "Stony Brook" in their content
+- **Get statistics** on the entire dataset
+- **Export filtered subsets** to new files
+- **Combine chunks** back into single files
+- **Get all Stony Brook authors**
+
+---
+
 Here are all the CLI commands you can use:
 
 ## Basic Commands
