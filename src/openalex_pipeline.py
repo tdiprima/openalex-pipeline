@@ -47,7 +47,7 @@ class OpenAlexPipeline:
             ssl=False,
             min_size=10,
             command_timeout=60,  # safety feature to prevent hung queries
-            max_size=100
+            max_size=100,
         )
 
         # Create tables using a connection from the pool
