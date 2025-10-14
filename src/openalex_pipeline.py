@@ -80,29 +80,31 @@ class OpenAlexPipeline:
     async def fetch_authors(
         self, session: aiohttp.ClientSession, max_results: int = 10000
     ):
-        """Fetch authors from Stony Brook"""
+        """Fetch authors from Stony Brook using cursor pagination"""
         authors = []
-        page = 1
         per_page = 200
+        cursor = "*"  # Start with wildcard cursor
 
         while len(authors) < max_results:
             url = f"{self.BASE_URL}/authors"
             params = {
                 "filter": f"affiliations.institution.ror:{self.STONYBROOK_ROR}",
                 "per-page": per_page,
-                "page": page,
-                "sort": "cited_by_count:desc",
+                "cursor": cursor,
                 "mailto": self.email,
             }
 
             async with session.get(url, params=params) as resp:
                 data = await resp.json()
                 results = data.get("results", [])
+                meta = data.get("meta", {})
 
                 if not results:
                     break
 
                 for item in results:
+                    if len(authors) >= max_results:
+                        break
                     author = Author(
                         id=item["id"][:500],
                         name=item.get("display_name", "")[:500],
@@ -115,15 +117,17 @@ class OpenAlexPipeline:
                     )
                     authors.append(author)
 
-                print(f"  Fetched page {page}, total authors so far: {len(authors)}")
+                print(f"  Fetched batch, total authors so far: {len(authors)}")
 
-                if len(results) < per_page:
+                # Get next cursor from metadata
+                next_cursor = meta.get("next_cursor")
+                if not next_cursor or len(authors) >= max_results:
                     break
 
-                page += 1
+                cursor = next_cursor
                 await asyncio.sleep(0.1)
 
-        return authors[:max_results]
+        return authors
 
     async def fetch_publications(
         self, session: aiohttp.ClientSession, author_id: str, max_results: int = 10000
@@ -293,7 +297,7 @@ async def main():
     pipeline = OpenAlexPipeline(db_url, email)
 
     # With 72 cores, use high concurrency!
-    await pipeline.run(max_authors=10000, max_pubs_per_author=10000, concurrency=72)
+    await pipeline.run(max_authors=40866, max_pubs_per_author=10000, concurrency=72)
 
 
 if __name__ == "__main__":
