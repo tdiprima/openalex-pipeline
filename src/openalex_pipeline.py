@@ -292,7 +292,7 @@ async def main():
     db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
     pipeline = OpenAlexPipeline(db_url, email)
 
-    # With your 72 cores, use high concurrency!
+    # With 72 cores, use high concurrency!
     await pipeline.run(max_authors=10000, max_pubs_per_author=10000, concurrency=72)
 
 
