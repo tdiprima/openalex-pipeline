@@ -38,35 +38,44 @@ class OpenAlexPipeline:
     def __init__(self, db_url: str, email: str):
         self.db_url = db_url
         self.email = email
-        self.conn = None
+        self.pool = None
 
     async def connect_db(self):
-        """Connect to PostgreSQL"""
-        self.conn = await asyncpg.connect(self.db_url, ssl=False)
-        await self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS authors (
-                id TEXT PRIMARY KEY,
-                name TEXT,
-                works_count INT,
-                cited_by_count INT,
-                affiliations TEXT[]
-            )
-        """
+        """Create PostgreSQL connection pool"""
+        self.pool = await asyncpg.create_pool(
+            self.db_url,
+            ssl=False,
+            min_size=10,
+            command_timeout=60,  # safety feature to prevent hung queries
+            max_size=100
         )
-        await self.conn.execute(
+
+        # Create tables using a connection from the pool
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS authors (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    works_count INT,
+                    cited_by_count INT,
+                    affiliations TEXT[]
+                )
             """
-            CREATE TABLE IF NOT EXISTS publications (
-                id TEXT PRIMARY KEY,
-                title TEXT,
-                doi TEXT,
-                publication_year INT,
-                pdf_url TEXT,
-                authors TEXT[],
-                abstract TEXT
             )
-        """
-        )
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS publications (
+                    id TEXT PRIMARY KEY,
+                    title TEXT,
+                    doi TEXT,
+                    publication_year INT,
+                    pdf_url TEXT,
+                    authors TEXT[],
+                    abstract TEXT
+                )
+            """
+            )
 
     async def fetch_authors(
         self, session: aiohttp.ClientSession, max_results: int = 10000
@@ -176,45 +185,47 @@ class OpenAlexPipeline:
 
     async def save_author(self, author: Author):
         """Save author to database"""
-        await self.conn.execute(
-            """
-            INSERT INTO authors (id, name, works_count, cited_by_count, affiliations)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name,
-                works_count = EXCLUDED.works_count,
-                cited_by_count = EXCLUDED.cited_by_count,
-                affiliations = EXCLUDED.affiliations
-        """,
-            author.id,
-            author.name,
-            author.works_count,
-            author.cited_by_count,
-            author.affiliations,
-        )
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO authors (id, name, works_count, cited_by_count, affiliations)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    works_count = EXCLUDED.works_count,
+                    cited_by_count = EXCLUDED.cited_by_count,
+                    affiliations = EXCLUDED.affiliations
+            """,
+                author.id,
+                author.name,
+                author.works_count,
+                author.cited_by_count,
+                author.affiliations,
+            )
 
     async def save_publication(self, pub: Publication):
         """Save publication to database"""
-        await self.conn.execute(
-            """
-            INSERT INTO publications (id, title, doi, publication_year, pdf_url, authors, abstract)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (id) DO UPDATE SET
-                title = EXCLUDED.title,
-                doi = EXCLUDED.doi,
-                publication_year = EXCLUDED.publication_year,
-                pdf_url = EXCLUDED.pdf_url,
-                authors = EXCLUDED.authors,
-                abstract = EXCLUDED.abstract
-        """,
-            pub.id,
-            pub.title,
-            pub.doi,
-            pub.publication_year,
-            pub.pdf_url,
-            pub.authors,
-            pub.abstract,
-        )
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO publications (id, title, doi, publication_year, pdf_url, authors, abstract)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    doi = EXCLUDED.doi,
+                    publication_year = EXCLUDED.publication_year,
+                    pdf_url = EXCLUDED.pdf_url,
+                    authors = EXCLUDED.authors,
+                    abstract = EXCLUDED.abstract
+            """,
+                pub.id,
+                pub.title,
+                pub.doi,
+                pub.publication_year,
+                pub.pdf_url,
+                pub.authors,
+                pub.abstract,
+            )
 
     async def process_author(
         self, session: aiohttp.ClientSession, author: Author, max_pubs: int
@@ -266,7 +277,7 @@ class OpenAlexPipeline:
                 f"\n✓ Done! Processed {len(authors)} authors, {total_pubs} total publications"
             )
 
-        await self.conn.close()
+        await self.pool.close()
 
 
 # Usage
