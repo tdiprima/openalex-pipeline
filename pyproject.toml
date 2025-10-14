@@ -1,0 +1,11 @@
+[project]
+name = "openalex-pipeline"
+version = "0.1.0"
+description = "Download Stony Brook University authors and publications from OpenAlex"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "aiohttp>=3.13.0",
+    "asyncpg>=0.30.0",
+    "python-dotenv>=1.1.1",
+]
