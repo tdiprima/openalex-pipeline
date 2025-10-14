@@ -216,7 +216,24 @@ class OpenAlexPipeline:
             pub.abstract,
         )
 
-    async def run(self, max_authors: int = 10000, max_pubs_per_author: int = 10000):
+    async def process_author(
+        self, session: aiohttp.ClientSession, author: Author, max_pubs: int
+    ):
+        """Process a single author: save them and fetch their publications"""
+        await self.save_author(author)
+        pubs = await self.fetch_publications(session, author.id, max_pubs)
+
+        for pub in pubs:
+            await self.save_publication(pub)
+
+        return len(pubs)
+
+    async def run(
+        self,
+        max_authors: int = 10000,
+        max_pubs_per_author: int = 10000,
+        concurrency: int = 50,
+    ):
         """Main pipeline"""
         await self.connect_db()
 
@@ -226,23 +243,30 @@ class OpenAlexPipeline:
             authors = await self.fetch_authors(session, max_authors)
             print(f"Found {len(authors)} total authors")
 
-            # Save authors and get their publications
-            for i, author in enumerate(authors):
-                print(f"Processing author {i+1}/{len(authors)}: {author.name}")
-                await self.save_author(author)
+            # Process authors concurrently
+            print(f"Processing authors with concurrency={concurrency}...")
+            semaphore = asyncio.Semaphore(concurrency)
 
-                pubs = await self.fetch_publications(
-                    session, author.id, max_pubs_per_author
-                )
-                print(f"  Found {len(pubs)} publications")
+            async def process_with_semaphore(i, author):
+                async with semaphore:
+                    print(f"Processing author {i+1}/{len(authors)}: {author.name}")
+                    pub_count = await self.process_author(
+                        session, author, max_pubs_per_author
+                    )
+                    print(f"  ✓ {author.name}: {pub_count} publications")
+                    return pub_count
 
-                for pub in pubs:
-                    await self.save_publication(pub)
+            tasks = [
+                process_with_semaphore(i, author) for i, author in enumerate(authors)
+            ]
+            results = await asyncio.gather(*tasks)
 
-                await asyncio.sleep(0.1)  # Be nice to API
+            total_pubs = sum(results)
+            print(
+                f"\n✓ Done! Processed {len(authors)} authors, {total_pubs} total publications"
+            )
 
         await self.conn.close()
-        print("Done!")
 
 
 # Usage
@@ -256,7 +280,9 @@ async def main():
     # URL-encode password to handle special characters
     db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
     pipeline = OpenAlexPipeline(db_url, email)
-    await pipeline.run(max_authors=10000, max_pubs_per_author=10000)
+
+    # With your 72 cores, use high concurrency!
+    await pipeline.run(max_authors=10000, max_pubs_per_author=10000, concurrency=50)
 
 
 if __name__ == "__main__":
