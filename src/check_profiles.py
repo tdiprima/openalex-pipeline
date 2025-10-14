@@ -14,6 +14,41 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def reconstruct_abstract(abstract_str):
+    """
+    Convert OpenAlex inverted index format to readable text.
+    The abstract is stored as a string representation of a dict like:
+    "{'word1': [0], 'word2': [1], ...}"
+    """
+    if not abstract_str:
+        return ""
+
+    try:
+        # Parse the string as a dictionary
+        import ast
+        inverted_index = ast.literal_eval(abstract_str)
+
+        # Find the maximum position to know how long the text is
+        max_pos = 0
+        for positions in inverted_index.values():
+            if positions:
+                max_pos = max(max_pos, max(positions))
+
+        # Create an array to hold words at each position
+        words = [""] * (max_pos + 1)
+
+        # Place each word at its positions
+        for word, positions in inverted_index.items():
+            for pos in positions:
+                words[pos] = word
+
+        # Join the words with spaces
+        return " ".join(words)
+    except (ValueError, SyntaxError, KeyError):
+        # If parsing fails, return empty string
+        return ""
+
+
 async def check_profiles():
     """Check if CSV profiles have publications in the database and export to CSV"""
 
@@ -81,6 +116,9 @@ async def check_profiles():
 
                 if publications:
                     for pub in publications:
+                        # Reconstruct abstract from inverted index format
+                        abstract = reconstruct_abstract(pub["abstract"])
+
                         output_rows.append(
                             {
                                 "lastname": lastname,
@@ -93,7 +131,7 @@ async def check_profiles():
                                 "authors": (
                                     "; ".join(pub["authors"]) if pub["authors"] else ""
                                 ),
-                                "abstract": pub["abstract"] or "",
+                                "abstract": abstract,
                             }
                         )
 
