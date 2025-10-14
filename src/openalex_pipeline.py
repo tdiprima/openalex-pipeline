@@ -149,7 +149,7 @@ class OpenAlexPipeline:
 
                     pub = Publication(
                         id=item["id"][:500],
-                        title=item.get("title", "")[:1000],
+                        title=(item.get("title") or "")[:1000],
                         doi=item.get("doi", "")[:500] if item.get("doi") else None,
                         publication_year=item.get("publication_year", 0),
                         pdf_url=(
