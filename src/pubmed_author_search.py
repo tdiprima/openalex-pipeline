@@ -351,7 +351,7 @@ async def search_multiple_authors(
             f"Processing batch {batch_num}/{total_batches} ({i+1}-{min(i+batch_size, total_authors)} of {total_authors})"
         )
 
-        # Use list(starmap(function, iterable)) instead of list comprehensions 
+        # Use list(starmap(function, iterable)) instead of list comprehensions
         # where the function arguments match the tuple unpacking pattern
         tasks = list(starmap(searcher.find_author_affiliations, batch))
         batch_results = await asyncio.gather(*tasks)
