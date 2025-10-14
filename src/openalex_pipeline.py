@@ -2,6 +2,7 @@ import asyncio
 import os
 from dataclasses import dataclass
 from typing import List, Optional
+from urllib.parse import quote_plus
 
 import aiohttp
 import asyncpg
@@ -84,12 +85,12 @@ class OpenAlexPipeline:
             authors = []
             for item in data.get("results", []):
                 author = Author(
-                    id=item["id"],
-                    name=item.get("display_name", ""),
+                    id=item["id"][:500],
+                    name=item.get("display_name", "")[:500],
                     works_count=item.get("works_count", 0),
                     cited_by_count=item.get("cited_by_count", 0),
                     affiliations=[
-                        aff.get("display_name", "")
+                        aff.get("display_name", "")[:500]
                         for aff in item.get("affiliations", [])
                     ],
                 )
@@ -112,21 +113,27 @@ class OpenAlexPipeline:
             data = await resp.json()
             pubs = []
             for item in data.get("results", []):
+                # Convert inverted index to text if present
+                abstract = None
+                if item.get("abstract_inverted_index"):
+                    abstract = str(item.get("abstract_inverted_index"))[:5000]
+
                 pub = Publication(
-                    id=item["id"],
-                    title=item.get("title", ""),
-                    doi=item.get("doi"),
+                    id=item["id"][:500],
+                    title=item.get("title", "")[:1000],
+                    doi=item.get("doi", "")[:500] if item.get("doi") else None,
                     publication_year=item.get("publication_year", 0),
                     pdf_url=(
-                        item.get("primary_location", {}).get("pdf_url")
+                        item.get("primary_location", {}).get("pdf_url", "")[:1000]
                         if item.get("primary_location")
+                        and item.get("primary_location", {}).get("pdf_url")
                         else None
                     ),
                     authors=[
-                        a.get("author", {}).get("display_name", "")
+                        a.get("author", {}).get("display_name", "")[:500]
                         for a in item.get("authorships", [])
                     ],
-                    abstract=item.get("abstract_inverted_index"),
+                    abstract=abstract,
                 )
                 pubs.append(pub)
             return pubs
@@ -210,7 +217,8 @@ async def main():
     db_name = os.getenv("DB_NAME")
     email = os.getenv("OPENALEX_EMAIL")
 
-    db_url = f"postgresql://{db_user}:{db_password}@{db_host}/{db_name}"
+    # URL-encode password to handle special characters
+    db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
     pipeline = OpenAlexPipeline(db_url, email)
     await pipeline.run(max_authors=50, max_pubs_per_author=100)
 
