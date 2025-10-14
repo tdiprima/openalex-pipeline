@@ -1,125 +1,121 @@
-# 📚 OpenAlex Pipeline
+# OpenAlex Pipeline
 
-## 📝 Overview
+An async Python pipeline to fetch ExampleOrg authors and their publications from OpenAlex API and store them in PostgreSQL.
 
-Python tool to:
+## Features
 
-* 🔎 Query OpenAlex API for **ExampleOrg** researchers
-* 📄 Download + scan PDFs for affiliations
-* 🤖 (Optional) Summarize w/ AI
-* 📊 Export structured results (JSONL)
+- Fetches authors affiliated with ExampleOrg (ROR: `00000000a`)
+- Retrieves publications for each author
+- Stores data in PostgreSQL with automatic schema creation
+- Async/await for efficient API requests
+- Rate limiting to respect API guidelines
 
-## ⚡ Setup
+## Requirements
+
+- Python 3.7+
+- PostgreSQL database
+- Environment variables configured (see Setup)
+
+## Dependencies
+
+- `asyncio` - Async runtime
+- `aiohttp` - Async HTTP client
+- `asyncpg` - Async PostgreSQL driver
+- `python-dotenv` - Environment variable management
+
+## Setup
+
+1. Create a `.env` file with the following variables:
+
+```env
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+DB_HOST=localhost
+DB_NAME=your_db_name
+OPENALEX_EMAIL=your_email@example.com
+```
+
+2. Install dependencies:
 
 ```bash
-python3.10 -m venv .venv  
-source .venv/bin/activate  
-pip install -r requirements.txt
+pip install aiohttp asyncpg python-dotenv
 ```
 
-### Core Deps
+## Usage
 
-* 🌐 `requests` → API calls
-* ⚡ `orjson` → fast JSON export
-* 📄 `pdfplumber`, `PyPDF2` → text extraction
-* 🖼️ `pdf2image`, `pytesseract`, `pillow` → OCR (optional)
-* 🤖 `transformers`, `torch` → AI summaries (optional)
-
-```sh
-# MacOS
-brew install tesseract
-
-# Rocky Linux
-sudo dnf install -y tesseract tesseract-langpack-eng
-```
-
-## ▶️ Run It
+Run the pipeline:
 
 ```bash
-source .venv/bin/activate  
-
-# Default (3 authors, 2 pubs)
-python main.py --email you@email  
-
-# Custom run
-python main.py --email you@email --authors 5 --pubs 3
-
-
-# Enable PDF downloads (disabled by default for faster processing)
-python main.py --email your@email.com --authors 40000 --pubs 10 --pdf
-
-# Enable the OCR and AI summarization features
-ENABLE_OCR=true ENABLE_SUMMARIZATION=true python main.py --email your@email.com --pdf
+python src/openalex_pipeline.py
 ```
 
-## ⚙️ Env Vars
+The pipeline will:
+1. Connect to PostgreSQL and create tables if they don't exist
+2. Fetch up to 50 authors from ExampleOrg (sorted by citation count)
+3. For each author, fetch up to 100 publications (sorted by year)
+4. Store all data in the database
 
-* `EMAIL` → OpenAlex polite pool (faster)
-* `ENABLE_OCR=true` → OCR mode
-* `ENABLE_SUMMARIZATION=true` → AI summaries
-* `OUTPUT_DIR` → output folder (default: `./output`)
-* `NUM_AUTHORS`, `NUM_PUBS`, `VERBOSE` → tuning
-* `ENABLE_PDF_DOWNLOAD`: Set to "true" to enable PDF downloads (disabled by default)
+## Database Schema
 
-## 📂 Output
+### Authors Table
 
-After each run → timestamped dir:
-
-* 📜 `authors.jsonl` → 1 author per line
-* 📜 `publications.jsonl` → 1 pub per line
-* 📊 `run_stats.json` → stats + metadata
-* 📄 `paper_*.pdf` → downloaded PDFs (if enabled)
-
-Quick queries:
-
-```bash
-jq 'select(.cited_by_count > 1000)' authors.jsonl   # top authors
-jq 'select(.processing.ExampleOrg_validation.found == true)' publications.jsonl
+```sql
+CREATE TABLE authors (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    works_count INT,
+    cited_by_count INT,
+    affiliations TEXT[]
+)
 ```
 
-## 🏗️ Core Files
+### Publications Table
 
-* `pipeline.py` → orchestrator
-* `api_client.py` → OpenAlex calls
-* `pdf_processor.py` → text + OCR + summaries
-* `content_validator.py` → checks ExampleOrg mentions
-* `data_exporter_streaming.py` → JSONL export
-
-## 🔄 Data Flow
-
-1. 📡 Get authors (by citations)
-2. 📚 Fetch pubs (latest first)
-3. 📥 Download PDFs
-4. 📄 Extract text (plumber → PyPDF2 → OCR)
-5. 🕵 Validate SB mentions
-6. 🤖 Summarize (optional)
-7. 📊 Export JSONL + stats
-
----
-
-To get truly "all" authors:
-
-```sh
-# Very large dataset (be careful!)
-python main.py --email your@email.com --authors 50000 --pubs 500 --optimized --parallel
+```sql
+CREATE TABLE publications (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    doi TEXT,
+    publication_year INT,
+    pdf_url TEXT,
+    authors TEXT[],
+    abstract TEXT
+)
 ```
 
-Safe recommendations:
+## Configuration
 
-```sh
-# Test run
-python main.py --email your@email.com --authors 100 --pubs 10 --optimized --parallel
+Modify the pipeline parameters in `main()`:
 
-# Medium scale
-python main.py --email your@email.com --authors 1000 --pubs 25 --optimized --parallel
-
-# Large scale (might take hours)
-python main.py --email your@email.com --authors 10000 --pubs 50 --optimized --parallel
+```python
+await pipeline.run(
+    max_authors=50,           # Maximum authors to fetch
+    max_pubs_per_author=100   # Maximum publications per author
+)
 ```
 
-The OpenAlex API doesn't have a true "get all authors" option - you specify a max number. For ExampleOrg, there are likely 5,000-15,000 total authors in their database.
+## Code Structure
 
-❌ Ran into issue.  
-Use `python main.py --optimized` without `--parallel`.
+- `Author` - Dataclass for author data
+- `Publication` - Dataclass for publication data
+- `OpenAlexPipeline` - Main pipeline class with methods:
+  - `connect_db()` - Initialize database connection and tables
+  - `fetch_authors()` - Query OpenAlex for ExampleOrg authors
+  - `fetch_publications()` - Query OpenAlex for author publications
+  - `save_author()` - Insert/update author in database
+  - `save_publication()` - Insert/update publication in database
+  - `run()` - Execute the complete pipeline
 
-<br>
+## API Details
+
+- Base URL: `https://api.openalex.org`
+- Uses polite pool (requires email in `mailto` parameter)
+- Rate limited with 0.1s delay between author processing
+- Results sorted by relevance (citations for authors, year for publications)
+
+## Notes
+
+- The pipeline uses `ON CONFLICT DO UPDATE` for idempotent inserts
+- Abstract is stored as inverted index from OpenAlex
+- Affiliations are stored as PostgreSQL array type
+- PDF URLs are extracted from primary location when available
