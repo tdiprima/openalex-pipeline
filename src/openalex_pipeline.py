@@ -69,74 +69,110 @@ class OpenAlexPipeline:
         )
 
     async def fetch_authors(
-        self, session: aiohttp.ClientSession, max_results: int = 200
+        self, session: aiohttp.ClientSession, max_results: int = 10000
     ):
         """Fetch authors from Stony Brook"""
-        url = f"{self.BASE_URL}/authors"
-        params = {
-            "filter": f"affiliations.institution.ror:{self.STONYBROOK_ROR}",
-            "per-page": min(max_results, 200),
-            "sort": "cited_by_count:desc",
-            "mailto": self.email,
-        }
+        authors = []
+        page = 1
+        per_page = 200
 
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
-            authors = []
-            for item in data.get("results", []):
-                author = Author(
-                    id=item["id"][:500],
-                    name=item.get("display_name", "")[:500],
-                    works_count=item.get("works_count", 0),
-                    cited_by_count=item.get("cited_by_count", 0),
-                    affiliations=[
-                        aff.get("display_name", "")[:500]
-                        for aff in item.get("affiliations", [])
-                    ],
-                )
-                authors.append(author)
-            return authors
+        while len(authors) < max_results:
+            url = f"{self.BASE_URL}/authors"
+            params = {
+                "filter": f"affiliations.institution.ror:{self.STONYBROOK_ROR}",
+                "per-page": per_page,
+                "page": page,
+                "sort": "cited_by_count:desc",
+                "mailto": self.email,
+            }
+
+            async with session.get(url, params=params) as resp:
+                data = await resp.json()
+                results = data.get("results", [])
+
+                if not results:
+                    break
+
+                for item in results:
+                    author = Author(
+                        id=item["id"][:500],
+                        name=item.get("display_name", "")[:500],
+                        works_count=item.get("works_count", 0),
+                        cited_by_count=item.get("cited_by_count", 0),
+                        affiliations=[
+                            aff.get("display_name", "")[:500]
+                            for aff in item.get("affiliations", [])
+                        ],
+                    )
+                    authors.append(author)
+
+                print(f"  Fetched page {page}, total authors so far: {len(authors)}")
+
+                if len(results) < per_page:
+                    break
+
+                page += 1
+                await asyncio.sleep(0.1)
+
+        return authors[:max_results]
 
     async def fetch_publications(
-        self, session: aiohttp.ClientSession, author_id: str, max_results: int = 200
+        self, session: aiohttp.ClientSession, author_id: str, max_results: int = 10000
     ):
         """Fetch publications for an author"""
-        url = f"{self.BASE_URL}/works"
-        params = {
-            "filter": f"authorships.author.id:{author_id}",
-            "per-page": min(max_results, 200),
-            "sort": "publication_year:desc",
-            "mailto": self.email,
-        }
+        pubs = []
+        page = 1
+        per_page = 200
 
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
-            pubs = []
-            for item in data.get("results", []):
-                # Convert inverted index to text if present
-                abstract = None
-                if item.get("abstract_inverted_index"):
-                    abstract = str(item.get("abstract_inverted_index"))[:5000]
+        while len(pubs) < max_results:
+            url = f"{self.BASE_URL}/works"
+            params = {
+                "filter": f"authorships.author.id:{author_id}",
+                "per-page": per_page,
+                "page": page,
+                "sort": "publication_year:desc",
+                "mailto": self.email,
+            }
 
-                pub = Publication(
-                    id=item["id"][:500],
-                    title=item.get("title", "")[:1000],
-                    doi=item.get("doi", "")[:500] if item.get("doi") else None,
-                    publication_year=item.get("publication_year", 0),
-                    pdf_url=(
-                        item.get("primary_location", {}).get("pdf_url", "")[:1000]
-                        if item.get("primary_location")
-                        and item.get("primary_location", {}).get("pdf_url")
-                        else None
-                    ),
-                    authors=[
-                        a.get("author", {}).get("display_name", "")[:500]
-                        for a in item.get("authorships", [])
-                    ],
-                    abstract=abstract,
-                )
-                pubs.append(pub)
-            return pubs
+            async with session.get(url, params=params) as resp:
+                data = await resp.json()
+                results = data.get("results", [])
+
+                if not results:
+                    break
+
+                for item in results:
+                    # Convert inverted index to text if present
+                    abstract = None
+                    if item.get("abstract_inverted_index"):
+                        abstract = str(item.get("abstract_inverted_index"))[:5000]
+
+                    pub = Publication(
+                        id=item["id"][:500],
+                        title=item.get("title", "")[:1000],
+                        doi=item.get("doi", "")[:500] if item.get("doi") else None,
+                        publication_year=item.get("publication_year", 0),
+                        pdf_url=(
+                            item.get("primary_location", {}).get("pdf_url", "")[:1000]
+                            if item.get("primary_location")
+                            and item.get("primary_location", {}).get("pdf_url")
+                            else None
+                        ),
+                        authors=[
+                            a.get("author", {}).get("display_name", "")[:500]
+                            for a in item.get("authorships", [])
+                        ],
+                        abstract=abstract,
+                    )
+                    pubs.append(pub)
+
+                if len(results) < per_page:
+                    break
+
+                page += 1
+                await asyncio.sleep(0.05)
+
+        return pubs[:max_results]
 
     async def save_author(self, author: Author):
         """Save author to database"""
@@ -180,7 +216,7 @@ class OpenAlexPipeline:
             pub.abstract,
         )
 
-    async def run(self, max_authors: int = 50, max_pubs_per_author: int = 100):
+    async def run(self, max_authors: int = 10000, max_pubs_per_author: int = 10000):
         """Main pipeline"""
         await self.connect_db()
 
@@ -188,7 +224,7 @@ class OpenAlexPipeline:
             # Get authors
             print("Fetching authors...")
             authors = await self.fetch_authors(session, max_authors)
-            print(f"Found {len(authors)} authors")
+            print(f"Found {len(authors)} total authors")
 
             # Save authors and get their publications
             for i, author in enumerate(authors):
@@ -220,7 +256,7 @@ async def main():
     # URL-encode password to handle special characters
     db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
     pipeline = OpenAlexPipeline(db_url, email)
-    await pipeline.run(max_authors=50, max_pubs_per_author=100)
+    await pipeline.run(max_authors=10000, max_pubs_per_author=10000)
 
 
 if __name__ == "__main__":
