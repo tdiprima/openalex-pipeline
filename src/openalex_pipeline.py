@@ -282,7 +282,7 @@ async def main():
     pipeline = OpenAlexPipeline(db_url, email)
 
     # With your 72 cores, use high concurrency!
-    await pipeline.run(max_authors=10000, max_pubs_per_author=10000, concurrency=50)
+    await pipeline.run(max_authors=10000, max_pubs_per_author=10000, concurrency=72)
 
 
 if __name__ == "__main__":
