@@ -81,17 +81,21 @@ async def check_profiles():
 
                 if publications:
                     for pub in publications:
-                        output_rows.append({
-                            "lastname": lastname,
-                            "firstname": firstname,
-                            "department": department,
-                            "title": pub["title"],
-                            "doi": pub["doi"] or "",
-                            "publication_year": pub["publication_year"],
-                            "pdf_url": pub["pdf_url"] or "",
-                            "authors": "; ".join(pub["authors"]) if pub["authors"] else "",
-                            "abstract": pub["abstract"] or "",
-                        })
+                        output_rows.append(
+                            {
+                                "lastname": lastname,
+                                "firstname": firstname,
+                                "department": department,
+                                "title": pub["title"],
+                                "doi": pub["doi"] or "",
+                                "publication_year": pub["publication_year"],
+                                "pdf_url": pub["pdf_url"] or "",
+                                "authors": (
+                                    "; ".join(pub["authors"]) if pub["authors"] else ""
+                                ),
+                                "abstract": pub["abstract"] or "",
+                            }
+                        )
 
                     total_pubs_found += len(publications)
                     print(
@@ -108,7 +112,9 @@ async def check_profiles():
 
         # Write to CSV
         if output_rows:
-            print(f"\n📝 Writing {len(output_rows)} publication records to {output_file}...")
+            print(
+                f"\n📝 Writing {len(output_rows)} publication records to {output_file}..."
+            )
             with open(output_file, "w", encoding="utf-8", newline="") as f:
                 fieldnames = [
                     "lastname",
@@ -124,7 +130,7 @@ async def check_profiles():
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(output_rows)
-            print(f"✅ Export complete!")
+            print("✅ Export complete!")
         else:
             print("\n⚠️  No publications found to export.")
 
