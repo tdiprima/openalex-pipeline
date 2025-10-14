@@ -1,6 +1,7 @@
 import asyncio
 import os
 from dataclasses import dataclass
+from itertools import starmap
 from typing import List, Optional
 from urllib.parse import quote_plus
 
@@ -271,9 +272,7 @@ class OpenAlexPipeline:
                     print(f"  ✓ {author.name}: {pub_count} publications")
                     return pub_count
 
-            tasks = [
-                process_with_semaphore(i, author) for i, author in enumerate(authors)
-            ]
+            tasks = list(starmap(process_with_semaphore, enumerate(authors)))
             results = await asyncio.gather(*tasks)
 
             total_pubs = sum(results)
