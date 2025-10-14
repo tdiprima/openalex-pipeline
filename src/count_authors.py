@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 """
 Quickly get total number of Stony Brook authors in OpenAlex
 using the count from API metadata (single request).
 """
+
 import asyncio
 import os
 
@@ -39,10 +39,12 @@ async def count_all_authors():
             meta = data.get("meta", {})
             total_count = meta.get("count", 0)
 
-            print("="*60)
+            print("=" * 60)
             print(f"✅ TOTAL STONY BROOK AUTHORS IN OPENALEX: {total_count:,}")
-            print("="*60)
-            print(f"\nYou can now run openalex_pipeline.py with max_authors={total_count}")
+            print("=" * 60)
+            print(
+                f"\nYou can now run openalex_pipeline.py with max_authors={total_count}"
+            )
 
             return total_count
 
