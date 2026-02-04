@@ -2,7 +2,7 @@ import asyncio
 import csv
 import json
 import time
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 from datetime import datetime
 from itertools import starmap
 from typing import Dict, List, Optional
@@ -180,7 +180,7 @@ class PubMedAuthorSearch:
 
                 articles.append(article_data)
 
-        except ET.ParseError as e:
+        except Exception as e:
             print(f"Error parsing XML: {e}")
 
         return articles
