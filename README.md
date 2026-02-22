@@ -50,6 +50,7 @@ python src/openalex_pipeline.py
 ```
 
 The pipeline will:
+
 1. Connect to PostgreSQL and create tables if they don't exist
 2. Fetch up to 50 authors from Stony Brook (sorted by citation count)
 3. For each author, fetch up to 100 publications (sorted by year)
@@ -119,3 +120,5 @@ await pipeline.run(
 - Abstract is stored as inverted index from OpenAlex
 - Affiliations are stored as PostgreSQL array type
 - PDF URLs are extracted from primary location when available
+
+<br>
