@@ -1,124 +1,83 @@
-# OpenAlex Pipeline
+# openalex-pipeline
 
-An async Python pipeline to fetch Stony Brook University authors and their publications from OpenAlex API and store them in PostgreSQL.
+Pulls Stony Brook author + publication data from OpenAlex into PostgreSQL.
 
-## Features
+## What this does
 
-- Fetches authors affiliated with Stony Brook University (ROR: `05qghxh33`)
-- Retrieves publications for each author
-- Stores data in PostgreSQL with automatic schema creation
-- Async/await for efficient API requests
-- Rate limiting to respect API guidelines
+1. Gets Stony Brook authors from OpenAlex.
+2. Gets publications for each author.
+3. Saves everything in your Postgres database.
 
-## Requirements
+## 5-minute setup
 
-- Python 3.7+
-- PostgreSQL database
-- Environment variables configured (see Setup)
-
-## Dependencies
-
-- `asyncio` - Async runtime
-- `aiohttp` - Async HTTP client
-- `asyncpg` - Async PostgreSQL driver
-- `python-dotenv` - Environment variable management
-
-## Setup
-
-1. Create a `.env` file with the following variables:
-
-```env
-DB_USER=your_db_user
-DB_PASSWORD=your_db_password
-DB_HOST=localhost
-DB_NAME=your_db_name
-OPENALEX_EMAIL=your_email@example.com
-```
-
-2. Install dependencies:
+### 1) Install Python packages
 
 ```bash
-pip install aiohttp asyncpg python-dotenv
+pip install -r requirements.txt
 ```
 
-## Usage
+### 2) Create your env file
 
-Run the pipeline:
+```bash
+cp .env_sample .env
+```
+
+Then edit `.env`:
+
+```env
+DB_USER=your_user
+DB_PASSWORD=your_password
+DB_HOST=localhost
+DB_NAME=your_dbname
+OPENALEX_EMAIL=your@email.com
+```
+
+### 3) Make sure Postgres DB exists
+
+Create the database named in `DB_NAME`.
+
+Note: tables are auto-created by the script.
+
+## Run it
 
 ```bash
 python src/openalex_pipeline.py
 ```
 
-The pipeline will:
+That is the main command.
 
-1. Connect to PostgreSQL and create tables if they don't exist
-2. Fetch up to 50 authors from Stony Brook (sorted by citation count)
-3. For each author, fetch up to 100 publications (sorted by year)
-4. Store all data in the database
+## Important default
 
-## Database Schema
+`src/openalex_pipeline.py` currently runs with a **large** job size:
 
-### Authors Table
+- `max_authors=40866`
+- `max_pubs_per_author=10000`
+- `concurrency=72`
 
-```sql
-CREATE TABLE authors (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    works_count INT,
-    cited_by_count INT,
-    affiliations TEXT[]
-)
-```
-
-### Publications Table
-
-```sql
-CREATE TABLE publications (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    doi TEXT,
-    publication_year INT,
-    pdf_url TEXT,
-    authors TEXT[],
-    abstract TEXT
-)
-```
-
-## Configuration
-
-Modify the pipeline parameters in `main()`:
+If you want a small test first, edit `main()` in `src/openalex_pipeline.py` and use something like:
 
 ```python
-await pipeline.run(
-    max_authors=50,           # Maximum authors to fetch
-    max_pubs_per_author=100   # Maximum publications per author
-)
+await pipeline.run(max_authors=10, max_pubs_per_author=100, concurrency=5)
 ```
 
-## Code Structure
+## Useful extra scripts
 
-- `Author` - Dataclass for author data
-- `Publication` - Dataclass for publication data
-- `OpenAlexPipeline` - Main pipeline class with methods:
-  - `connect_db()` - Initialize database connection and tables
-  - `fetch_authors()` - Query OpenAlex for Stony Brook authors
-  - `fetch_publications()` - Query OpenAlex for author publications
-  - `save_author()` - Insert/update author in database
-  - `save_publication()` - Insert/update publication in database
-  - `run()` - Execute the complete pipeline
+- Count total Stony Brook authors in OpenAlex:
 
-## API Details
+```bash
+python src/count_authors.py
+```
 
-- Base URL: `https://api.openalex.org`
-- Uses polite pool (requires email in `mailto` parameter)
-- Rate limited with 0.1s delay between author processing
-- Results sorted by relevance (citations for authors, year for publications)
+- Export publications for authors listed in `authors_with_pubs_found.csv`:
 
-## Notes
+```bash
+python src/check_profiles.py
+```
 
-- The pipeline uses `ON CONFLICT DO UPDATE` for idempotent inserts
-- Abstract is stored as inverted index from OpenAlex
-- Affiliations are stored as PostgreSQL array type
-- PDF URLs are extracted from primary location when available
+- PubMed search helper (requires editing config constants in `src/pubmed_author_search.py` before running):
+
+```bash
+python src/pubmed_author_search.py
+```
 
 <br>
