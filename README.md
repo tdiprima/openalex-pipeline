@@ -2,6 +2,8 @@
 
 Pulls Stony Brook author + publication data from OpenAlex into PostgreSQL.
 
+OpenAlex is a free, open catalog of the global research system, but accessing it at scale — tens of thousands of authors and millions of publications — means wrestling with a paginated REST API, rate limits, and a lot of waiting. This pipeline was written to automate that process end-to-end: fetch every Stony Brook University author from OpenAlex, pull all of their publications, and land everything in a local PostgreSQL database where it can actually be queried. The core problem was doing this efficiently; a naive sequential approach would take hours, so the pipeline uses async I/O and a configurable concurrency level to pull data in parallel without hammering the API.
+
 ## What this does
 
 1. Gets Stony Brook authors from OpenAlex.
