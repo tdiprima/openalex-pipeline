@@ -76,7 +76,7 @@ python src/count_authors.py
 python src/check_profiles.py
 ```
 
-- PubMed search helper (requires editing config constants in `src/pubmed_author_search.py` before running):
+- PubMed search helper:
 
 ```bash
 python src/pubmed_author_search.py
