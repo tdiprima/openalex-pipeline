@@ -1,14 +1,15 @@
 import asyncio
 import csv
 import json
+import os
 import time
-from defusedxml import ElementTree as ET
 from datetime import datetime
 from itertools import starmap
 from typing import Dict, List, Optional
-from dotenv import load_dotenv
-import os
+
 import aiohttp
+from defusedxml import ElementTree as ET
+from dotenv import load_dotenv
 
 load_dotenv()
 
