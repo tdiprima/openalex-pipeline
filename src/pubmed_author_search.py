@@ -6,8 +6,11 @@ from defusedxml import ElementTree as ET
 from datetime import datetime
 from itertools import starmap
 from typing import Dict, List, Optional
-
+from dotenv import load_dotenv
+import os
 import aiohttp
+
+load_dotenv()
 
 
 class PubMedAuthorSearch:
@@ -425,9 +428,8 @@ def save_results(results: List[Dict], output_file: str = None):
 
 
 async def main():
-    # TODO: Configuration
-    EMAIL = "your.email@example.com"  # REPLACE with your email
-    API_KEY = "your_api_key_here"  # REPLACE with your NCBI API key
+    EMAIL = os.getenv("OPENALEX_EMAIL")
+    API_KEY = os.getenv("NCBI_API_KEY")
     CSV_FILE = "not_found.csv"
 
     # Read authors from CSV
@@ -475,5 +477,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    # IMPORTANT: Update EMAIL and API_KEY before running!
     asyncio.run(main())
