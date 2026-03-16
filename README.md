@@ -67,19 +67,19 @@ await pipeline.run(max_authors=10, max_pubs_per_author=100, concurrency=5)
 - Count total ExampleOrg authors in OpenAlex:
 
 ```bash
-python src/count_authors.py
+python utils/count_authors.py
 ```
 
 - Export publications for authors listed in `authors_with_pubs_found.csv`:
 
 ```bash
-python src/check_profiles.py
+python utils/check_profiles.py
 ```
 
 - PubMed search helper:
 
 ```bash
-python src/pubmed_author_search.py
+python utils/pubmed_author_search.py
 ```
 
 <br>

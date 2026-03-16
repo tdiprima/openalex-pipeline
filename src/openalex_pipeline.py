@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 from itertools import starmap
@@ -10,6 +11,12 @@ import asyncpg
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -42,16 +49,17 @@ class OpenAlexPipeline:
         self.pool = None
 
     async def connect_db(self):
-        """Create PostgreSQL connection pool"""
+        """Create PostgreSQL connection pool."""
         self.pool = await asyncpg.create_pool(
             self.db_url,
             ssl=False,
             min_size=10,
-            command_timeout=60,  # safety feature to prevent hung queries
+            command_timeout=60,
             max_size=100,
         )
 
-        # Create tables using a connection from the pool
+    async def create_tables(self):
+        """Create required tables if they do not exist."""
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -62,7 +70,7 @@ class OpenAlexPipeline:
                     cited_by_count INT,
                     affiliations TEXT[]
                 )
-            """
+                """
             )
             await conn.execute(
                 """
@@ -75,16 +83,16 @@ class OpenAlexPipeline:
                     authors TEXT[],
                     abstract TEXT
                 )
-            """
+                """
             )
 
     async def fetch_authors(
         self, session: aiohttp.ClientSession, max_results: int = 10000
-    ):
-        """Fetch authors from ExampleOrg using cursor pagination"""
+    ) -> List[Author]:
+        """Fetch authors from ExampleOrg using cursor pagination."""
         authors = []
         per_page = 200
-        cursor = "*"  # Start with wildcard cursor
+        cursor = "*"
 
         while len(authors) < max_results:
             url = f"{self.BASE_URL}/authors"
@@ -96,6 +104,13 @@ class OpenAlexPipeline:
             }
 
             async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "Failed to fetch authors",
+                        extra={"status": resp.status, "url": url},
+                    )
+                    break
+
                 data = await resp.json()
                 results = data.get("results", [])
                 meta = data.get("meta", {})
@@ -118,9 +133,8 @@ class OpenAlexPipeline:
                     )
                     authors.append(author)
 
-                print(f"  Fetched batch, total authors so far: {len(authors)}")
+                logger.info("Fetched batch", extra={"total_authors": len(authors)})
 
-                # Get next cursor from metadata
                 next_cursor = meta.get("next_cursor")
                 if not next_cursor or len(authors) >= max_results:
                     break
@@ -132,8 +146,8 @@ class OpenAlexPipeline:
 
     async def fetch_publications(
         self, session: aiohttp.ClientSession, author_id: str, max_results: int = 10000
-    ):
-        """Fetch publications for an author"""
+    ) -> List[Publication]:
+        """Fetch publications for an author."""
         pubs = []
         page = 1
         per_page = 200
@@ -149,6 +163,13 @@ class OpenAlexPipeline:
             }
 
             async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "Failed to fetch publications",
+                        extra={"status": resp.status, "author_id": author_id},
+                    )
+                    break
+
                 data = await resp.json()
                 results = data.get("results", [])
 
@@ -156,22 +177,21 @@ class OpenAlexPipeline:
                     break
 
                 for item in results:
-                    # Convert inverted index to text if present
                     abstract = None
                     if item.get("abstract_inverted_index"):
                         abstract = str(item.get("abstract_inverted_index"))[:5000]
+
+                    pdf_url = None
+                    primary_location = item.get("primary_location") or {}
+                    if primary_location.get("pdf_url"):
+                        pdf_url = primary_location["pdf_url"][:1000]
 
                     pub = Publication(
                         id=item["id"][:500],
                         title=(item.get("title") or "")[:1000],
                         doi=item.get("doi", "")[:500] if item.get("doi") else None,
                         publication_year=item.get("publication_year", 0),
-                        pdf_url=(
-                            item.get("primary_location", {}).get("pdf_url", "")[:1000]
-                            if item.get("primary_location")
-                            and item.get("primary_location", {}).get("pdf_url")
-                            else None
-                        ),
+                        pdf_url=pdf_url,
                         authors=[
                             a.get("author", {}).get("display_name", "")[:500]
                             for a in item.get("authorships", [])
@@ -189,7 +209,7 @@ class OpenAlexPipeline:
         return pubs[:max_results]
 
     async def save_author(self, author: Author):
-        """Save author to database"""
+        """Upsert an author record into the database."""
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -200,7 +220,7 @@ class OpenAlexPipeline:
                     works_count = EXCLUDED.works_count,
                     cited_by_count = EXCLUDED.cited_by_count,
                     affiliations = EXCLUDED.affiliations
-            """,
+                """,
                 author.id,
                 author.name,
                 author.works_count,
@@ -209,7 +229,7 @@ class OpenAlexPipeline:
             )
 
     async def save_publication(self, pub: Publication):
-        """Save publication to database"""
+        """Upsert a publication record into the database."""
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -222,7 +242,7 @@ class OpenAlexPipeline:
                     pdf_url = EXCLUDED.pdf_url,
                     authors = EXCLUDED.authors,
                     abstract = EXCLUDED.abstract
-            """,
+                """,
                 pub.id,
                 pub.title,
                 pub.doi,
@@ -234,15 +254,35 @@ class OpenAlexPipeline:
 
     async def process_author(
         self, session: aiohttp.ClientSession, author: Author, max_pubs: int
-    ):
-        """Process a single author: save them and fetch their publications"""
+    ) -> int:
+        """Save an author and fetch and save all their publications."""
         await self.save_author(author)
         pubs = await self.fetch_publications(session, author.id, max_pubs)
-
         for pub in pubs:
             await self.save_publication(pub)
-
         return len(pubs)
+
+    async def _process_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        session: aiohttp.ClientSession,
+        index: int,
+        author: Author,
+        total: int,
+        max_pubs: int,
+    ) -> int:
+        """Wrap process_author with a semaphore for concurrency control."""
+        async with semaphore:
+            logger.info(
+                "Processing author",
+                extra={"index": index + 1, "total": total, "author": author.name},
+            )
+            pub_count = await self.process_author(session, author, max_pubs)
+            logger.info(
+                "Author complete",
+                extra={"author": author.name, "publications": pub_count},
+            )
+            return pub_count
 
     async def run(
         self,
@@ -250,52 +290,59 @@ class OpenAlexPipeline:
         max_pubs_per_author: int = 10000,
         concurrency: int = 50,
     ):
-        """Main pipeline"""
+        """Orchestrate the full pipeline: fetch authors, then their publications."""
         await self.connect_db()
+        await self.create_tables()
 
         async with aiohttp.ClientSession() as session:
-            # Get authors
-            print("Fetching authors...")
+            logger.info("Fetching authors")
             authors = await self.fetch_authors(session, max_authors)
-            print(f"Found {len(authors)} total authors")
+            logger.info("Authors fetched", extra={"count": len(authors)})
 
-            # Process authors concurrently
-            print(f"Processing authors with concurrency={concurrency}...")
+            logger.info("Processing authors", extra={"concurrency": concurrency})
             semaphore = asyncio.Semaphore(concurrency)
 
-            async def process_with_semaphore(i, author):
-                async with semaphore:
-                    print(f"Processing author {i+1}/{len(authors)}: {author.name}")
-                    pub_count = await self.process_author(
-                        session, author, max_pubs_per_author
-                    )
-                    print(f"  ✓ {author.name}: {pub_count} publications")
-                    return pub_count
-
-            tasks = list(starmap(process_with_semaphore, enumerate(authors)))
+            tasks = [
+                self._process_with_semaphore(
+                    semaphore, session, index, author, len(authors), max_pubs_per_author
+                )
+                for index, author in enumerate(authors)
+            ]
             results = await asyncio.gather(*tasks)
 
             total_pubs = sum(results)
-            print(
-                f"\n✓ Done! Processed {len(authors)} authors, {total_pubs} total publications"
+            logger.info(
+                "Pipeline complete",
+                extra={"authors": len(authors), "publications": total_pubs},
             )
 
         await self.pool.close()
 
 
-# Usage
+def load_config() -> dict:
+    """Load and validate required configuration from environment."""
+    required = ["DB_USER", "DB_PASSWORD", "DB_NAME", "OPENALEX_EMAIL"]
+    missing = [key for key in required if not os.getenv(key)]
+    if missing:
+        raise EnvironmentError(f"Missing required environment variables: {missing}")
+
+    return {
+        "db_user": os.environ["DB_USER"],
+        "db_password": os.environ["DB_PASSWORD"],
+        "db_host": os.getenv("DB_HOST", "localhost"),
+        "db_name": os.environ["DB_NAME"],
+        "email": os.environ["OPENALEX_EMAIL"],
+    }
+
+
 async def main():
-    db_user = os.getenv("DB_USER")
-    db_password = os.getenv("DB_PASSWORD")
-    db_host = os.getenv("DB_HOST", "localhost")
-    db_name = os.getenv("DB_NAME")
-    email = os.getenv("OPENALEX_EMAIL")
-
-    # URL-encode password to handle special characters
-    db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
-    pipeline = OpenAlexPipeline(db_url, email)
-
-    # With 72 cores, use high concurrency!
+    config = load_config()
+    db_url = (
+        f"postgresql://{config['db_user']}:{quote_plus(config['db_password'])}"
+        f"@{config['db_host']}/{config['db_name']}"
+    )
+    pipeline = OpenAlexPipeline(db_url, config["email"])
+    # With 72 cores, use high concurrency
     await pipeline.run(max_authors=40866, max_pubs_per_author=10000, concurrency=72)
 
 
