@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime
 from itertools import starmap
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 from defusedxml import ElementTree as ET
@@ -52,8 +52,11 @@ class PubMedAuthorSearch:
         """
         Search for PMIDs associated with an author.
 
-        Returns list of PMIDs (publication IDs)
+        Returns (pmids, failed_queries): PMIDs plus the number of search
+        queries that failed, so callers can distinguish "no results" from
+        "could not search".
         """
+        failed_queries = 0
         # Build search query - try full name and first initial
         queries = [
             f"{lastname} {firstname}[Author]",
@@ -83,21 +86,28 @@ class PubMedAuthorSearch:
 
             try:
                 async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if (
-                            "esearchresult" in data
-                            and "idlist" in data["esearchresult"]
-                        ):
-                            all_pmids.extend(data["esearchresult"]["idlist"])
+                    if response.status != 200:
+                        failed_queries += 1
+                        print(
+                            f"Search HTTP {response.status} for {firstname} {lastname}"
+                        )
+                        continue
+                    data = await response.json()
+                    idlist = data.get("esearchresult", {}).get("idlist")
+                    if idlist is None:
+                        failed_queries += 1
+                        print(f"Malformed search response for {firstname} {lastname}")
+                        continue
+                    all_pmids.extend(idlist)
             except Exception as e:
+                failed_queries += 1
                 print(f"Error searching for {firstname} {lastname}: {e}")
 
         # Deduplicate while preserving order, then rank newest-first
         # (PMIDs are assigned sequentially, so higher = more recent)
         unique_pmids = list(dict.fromkeys(all_pmids))
         unique_pmids.sort(key=self._pmid_sort_key, reverse=True)
-        return unique_pmids[:10]  # Return top 10 PMIDs
+        return unique_pmids[:10], failed_queries  # Return top 10 PMIDs
 
     @staticmethod
     def _pmid_sort_key(pmid: str) -> int:
@@ -136,12 +146,15 @@ class PubMedAuthorSearch:
 
     async def fetch_article_details(
         self, session: aiohttp.ClientSession, pmids: List[str]
-    ) -> List[Dict]:
+    ) -> Tuple[List[Dict], Optional[str]]:
         """
         Fetch detailed information for given PMIDs, including author affiliations.
+
+        Returns (articles, error): error is None on success, otherwise a
+        description of the HTTP/parse failure.
         """
         if not pmids:
-            return []
+            return [], None
 
         await self._rate_limit()
 
@@ -158,78 +171,82 @@ class PubMedAuthorSearch:
 
         try:
             async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    xml_data = await response.text()
-                    return self._parse_article_xml(xml_data)
+                if response.status != 200:
+                    return [], f"efetch HTTP {response.status}"
+                xml_data = await response.text()
         except Exception as e:
             print(f"Error fetching article details: {e}")
+            return [], f"efetch error: {e}"
 
-        return []
+        try:
+            articles = self._parse_article_xml(xml_data)
+        except Exception as e:
+            print(f"Error parsing XML: {e}")
+            return [], f"parse error: {e}"
+        if len(articles) < len(pmids):
+            return articles, f"parsed {len(articles)} of {len(pmids)} articles"
+        return articles, None
 
     def _parse_article_xml(self, xml_data: str) -> List[Dict]:
         """Parse PubMed XML to extract author and affiliation information."""
         articles = []
 
-        try:
-            root = ET.fromstring(xml_data)
+        root = ET.fromstring(xml_data)
 
-            for article in root.findall(".//PubmedArticle"):
-                article_data = {"pmid": "", "title": "", "authors": [], "year": ""}
+        for article in root.findall(".//PubmedArticle"):
+            article_data = {"pmid": "", "title": "", "authors": [], "year": ""}
 
-                # Get PMID
-                pmid_elem = article.find(".//PMID")
-                if pmid_elem is not None:
-                    article_data["pmid"] = pmid_elem.text
+            # Get PMID
+            pmid_elem = article.find(".//PMID")
+            if pmid_elem is not None:
+                article_data["pmid"] = pmid_elem.text
 
-                # Get title
-                title_elem = article.find(".//ArticleTitle")
-                if title_elem is not None:
-                    article_data["title"] = title_elem.text
+            # Get title
+            title_elem = article.find(".//ArticleTitle")
+            if title_elem is not None:
+                article_data["title"] = title_elem.text
 
-                # Get publication year
-                year_elem = article.find(".//PubDate/Year")
-                if year_elem is not None:
-                    article_data["year"] = year_elem.text
+            # Get publication year
+            year_elem = article.find(".//PubDate/Year")
+            if year_elem is not None:
+                article_data["year"] = year_elem.text
 
-                # Get authors with affiliations
-                author_list = article.find(".//AuthorList")
-                if author_list is not None:
-                    for author in author_list.findall("Author"):
-                        author_info = {}
+            # Get authors with affiliations
+            author_list = article.find(".//AuthorList")
+            if author_list is not None:
+                for author in author_list.findall("Author"):
+                    author_info = {}
 
-                        # Get name
-                        lastname = author.find("LastName")
-                        firstname = author.find("ForeName")
-                        if lastname is not None:
-                            author_info["lastname"] = lastname.text
-                        if firstname is not None:
-                            author_info["firstname"] = firstname.text
+                    # Get name
+                    lastname = author.find("LastName")
+                    firstname = author.find("ForeName")
+                    if lastname is not None:
+                        author_info["lastname"] = lastname.text
+                    if firstname is not None:
+                        author_info["firstname"] = firstname.text
 
-                        # Get affiliation
-                        affiliation = author.find(".//Affiliation")
-                        if affiliation is not None:
-                            author_info["affiliation"] = affiliation.text
+                    # Get affiliation
+                    affiliation = author.find(".//Affiliation")
+                    if affiliation is not None:
+                        author_info["affiliation"] = affiliation.text
 
-                            # Try to extract email if present
-                            import re
+                        # Try to extract email if present
+                        import re
 
-                            email_match = re.search(
-                                r"[\w\.-]+@[\w\.-]+\.\w+", affiliation.text
-                            )
-                            if email_match:
-                                author_info["email"] = email_match.group()
+                        email_match = re.search(
+                            r"[\w\.-]+@[\w\.-]+\.\w+", affiliation.text
+                        )
+                        if email_match:
+                            author_info["email"] = email_match.group()
 
-                        # Get ORCID if available
-                        for identifier in author.findall(".//Identifier"):
-                            if identifier.get("Source") == "ORCID":
-                                author_info["orcid"] = identifier.text
+                    # Get ORCID if available
+                    for identifier in author.findall(".//Identifier"):
+                        if identifier.get("Source") == "ORCID":
+                            author_info["orcid"] = identifier.text
 
-                        article_data["authors"].append(author_info)
+                    article_data["authors"].append(author_info)
 
-                articles.append(article_data)
-
-        except Exception as e:
-            print(f"Error parsing XML: {e}")
+            articles.append(article_data)
 
         return articles
 
@@ -241,18 +258,38 @@ class PubMedAuthorSearch:
         """
         async with aiohttp.ClientSession() as session:
             # Search for PMIDs
-            pmids = await self.search_author(session, lastname, firstname)
+            pmids, failed_queries = await self.search_author(
+                session, lastname, firstname
+            )
 
             if not pmids:
+                # Distinguish "searched, nothing there" from "could not search"
+                status = "failed" if failed_queries else "empty"
                 return {
                     "query": f"{firstname} {lastname}",
+                    "status": status,
                     "found": False,
+                    "error": (
+                        f"{failed_queries} search query(ies) failed"
+                        if failed_queries
+                        else None
+                    ),
                     "affiliations": [],
                     "ambiguous_affiliations": [],
                 }
 
             # Fetch article details
-            articles = await self.fetch_article_details(session, pmids)
+            articles, fetch_error = await self.fetch_article_details(session, pmids)
+            if not articles:
+                return {
+                    "query": f"{firstname} {lastname}",
+                    "status": "failed",
+                    "found": False,
+                    "error": fetch_error or "no article details returned",
+                    "num_pmids": len(pmids),
+                    "affiliations": [],
+                    "ambiguous_affiliations": [],
+                }
 
             # Extract unique affiliations for this author
             affiliations = {}
@@ -306,9 +343,17 @@ class PubMedAuthorSearch:
                             orcids.add(author["orcid"])
 
             # Format results
+            partial = bool(failed_queries or fetch_error)
+            error_parts = []
+            if failed_queries:
+                error_parts.append(f"{failed_queries} search query(ies) failed")
+            if fetch_error:
+                error_parts.append(fetch_error)
             result = {
                 "query": f"{firstname} {lastname}",
+                "status": "partial" if partial else "ok",
                 "found": len(affiliations) > 0,
+                "error": "; ".join(error_parts) or None,
                 "num_papers_checked": len(articles),
                 "affiliations": [],
                 "ambiguous_affiliations": [],
@@ -451,6 +496,8 @@ def save_results(results: List[Dict], output_file: str = None):
         writer.writerow(
             [
                 "Query",
+                "Status",
+                "Error",
                 "Found",
                 "Num_Papers",
                 "Emails",
@@ -481,6 +528,8 @@ def save_results(results: List[Dict], output_file: str = None):
             writer.writerow(
                 [
                     result["query"],
+                    result.get("status", ""),
+                    result.get("error") or "",
                     result["found"],
                     result.get("num_papers_checked", 0),
                     emails,
@@ -515,7 +564,13 @@ async def main():
     print("=" * 60)
 
     found_count = 0
+    failed_count = 0
+    partial_count = 0
     for result in results:
+        if result.get("status") == "failed":
+            failed_count += 1
+        elif result.get("status") == "partial":
+            partial_count += 1
         if result["found"]:
             found_count += 1
             print(f"\n✓ {result['query']}")
@@ -537,13 +592,17 @@ async def main():
                 f"({len(result['ambiguous_affiliations'])} affiliations); "
                 "see JSON output"
             )
+        elif result.get("status") == "failed":
+            print(f"\n! {result['query']} - LOOKUP FAILED: {result.get('error')}")
         else:
             print(f"\n✗ {result['query']} - No publications found")
 
     print(f"\n{'-' * 60}")
     print(f"Total authors searched: {len(results)}")
     print(f"Found in PubMed: {found_count}")
-    print(f"Not found: {len(results) - found_count}")
+    print(f"Not found: {len(results) - found_count - failed_count}")
+    print(f"Lookup failed (retry these): {failed_count}")
+    print(f"Partial (some requests failed): {partial_count}")
 
     # Save results
     save_results(results)

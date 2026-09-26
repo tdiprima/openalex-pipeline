@@ -47,6 +47,13 @@
 python src/openalex_pipeline.py
 ```
 
+**Flags:**
+
+- `--backfill` — only populate `publications.author_ids` for rows ingested before schema v2 (re-fetches works by ID in batches of 50). Required before `check_profiles.py` will export from an upgraded database.
+- `--no-resume` — re-process authors already marked `complete` in `author_ingestion_status`. By default a restart skips them.
+
+Schema migrations are applied explicitly on start and recorded in `schema_version`. Each run is recorded in `ingestion_runs` (status `running` / `complete` / `failed`) and every author's progress in `author_ingestion_status` (`in_progress` / `complete` / `failed`), so completion is persisted rather than only logged.
+
 **Customizing parameters:**
 
 Edit the `main()` function in `src/openalex_pipeline.py`:
@@ -234,6 +241,33 @@ CREATE TABLE publications (
     authors TEXT[],
     author_ids TEXT[],
     abstract TEXT
+);
+CREATE INDEX publications_author_ids_gin ON publications USING GIN (author_ids);
+
+CREATE TABLE schema_version (version INT PRIMARY KEY, applied_at TIMESTAMPTZ);
+
+CREATE TABLE ingestion_runs (
+    id SERIAL PRIMARY KEY,
+    started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ,
+    status TEXT,                -- running | complete | failed
+    authors_total INT, authors_completed INT, error TEXT
+);
+
+CREATE TABLE author_ingestion_status (
+    author_id TEXT PRIMARY KEY REFERENCES authors(id),
+    run_id INT REFERENCES ingestion_runs(id),
+    status TEXT,                -- in_progress | complete | failed
+    publications_count INT, updated_at TIMESTAMPTZ
+);
+
+-- Created by src/utils/check_profiles.py
+CREATE TABLE profile_author_map (
+    lastname TEXT, firstname TEXT,
+    author_id TEXT REFERENCES authors(id), author_name TEXT,
+    status TEXT,                -- resolved | ambiguous | rejected
+    resolved_by TEXT,           -- auto | manual
+    updated_at TIMESTAMPTZ,
+    PRIMARY KEY (lastname, firstname, author_id)
 );
 ```
 

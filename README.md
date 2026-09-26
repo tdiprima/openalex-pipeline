@@ -92,7 +92,7 @@ python src/utils/count_authors.py
 **Export publications for a list of authors** from the database to CSV:
 
 ```bash
-python src/utils/check_profiles.py
+python src/utils/check_profiles.py          # add --force to skip the readiness check
 ```
 
 **Search PubMed for author affiliations** (requires `NCBI_API_KEY` in `.env` for higher rate limits):

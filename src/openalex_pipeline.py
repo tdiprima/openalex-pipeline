@@ -1,10 +1,10 @@
+import argparse
 import asyncio
 import json
 import logging
 import os
 from dataclasses import dataclass
-from itertools import starmap
-from typing import List, Optional
+from typing import Iterable, List, Optional
 from urllib.parse import quote
 
 import aiohttp
@@ -64,37 +64,140 @@ class OpenAlexPipeline:
             max_size=100,
         )
 
-    async def create_tables(self):
-        """Create required tables if they do not exist."""
+    SCHEMA_VERSION = 2
+
+    # Ordered, idempotent migrations keyed by target schema version.
+    MIGRATIONS = {
+        1: [
+            """
+            CREATE TABLE IF NOT EXISTS authors (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                works_count INT,
+                cited_by_count INT,
+                affiliations TEXT[]
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS publications (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                doi TEXT,
+                publication_year INT,
+                pdf_url TEXT,
+                authors TEXT[],
+                abstract TEXT
+            )
+            """,
+        ],
+        2: [
+            "ALTER TABLE publications ADD COLUMN IF NOT EXISTS author_ids TEXT[]",
+            # ARCH-5: array-overlap lookups on author_ids use a GIN index
+            """
+            CREATE INDEX IF NOT EXISTS publications_author_ids_gin
+                ON publications USING GIN (author_ids)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS ingestion_runs (
+                id SERIAL PRIMARY KEY,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                finished_at TIMESTAMPTZ,
+                status TEXT NOT NULL DEFAULT 'running',
+                authors_total INT,
+                authors_completed INT,
+                error TEXT
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS author_ingestion_status (
+                author_id TEXT PRIMARY KEY REFERENCES authors(id),
+                run_id INT REFERENCES ingestion_runs(id),
+                status TEXT NOT NULL,
+                publications_count INT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """,
+        ],
+    }
+
+    async def migrate(self):
+        """Apply schema migrations explicitly and record the schema version."""
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS authors (
-                    id TEXT PRIMARY KEY,
-                    name TEXT,
-                    works_count INT,
-                    cited_by_count INT,
-                    affiliations TEXT[]
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    version INT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
                 """
             )
+            current = await conn.fetchval(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version"
+            )
+            for version in sorted(self.MIGRATIONS):
+                if version <= current:
+                    continue
+                logger.info("Applying schema migration", extra={"version": version})
+                async with conn.transaction():
+                    for stmt in self.MIGRATIONS[version]:
+                        await conn.execute(stmt)
+                    await conn.execute(
+                        "INSERT INTO schema_version (version) VALUES ($1)", version
+                    )
+
+    # Backwards-compatible alias
+    create_tables = migrate
+
+    async def start_run(self, authors_total: Optional[int] = None) -> int:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "INSERT INTO ingestion_runs (authors_total) VALUES ($1) RETURNING id",
+                authors_total,
+            )
+
+    async def finish_run(
+        self, run_id: int, status: str, completed: int = 0, error: str = None
+    ):
+        async with self.pool.acquire() as conn:
             await conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS publications (
-                    id TEXT PRIMARY KEY,
-                    title TEXT,
-                    doi TEXT,
-                    publication_year INT,
-                    pdf_url TEXT,
-                    authors TEXT[],
-                    author_ids TEXT[],
-                    abstract TEXT
-                )
-                """
+                UPDATE ingestion_runs
+                SET finished_at = now(), status = $2, authors_completed = $3, error = $4
+                WHERE id = $1
+                """,
+                run_id,
+                status,
+                completed,
+                error,
             )
+
+    async def set_author_status(
+        self, author_id: str, run_id: int, status: str, pub_count: int = None
+    ):
+        async with self.pool.acquire() as conn:
             await conn.execute(
-                "ALTER TABLE publications ADD COLUMN IF NOT EXISTS author_ids TEXT[]"
+                """
+                INSERT INTO author_ingestion_status
+                    (author_id, run_id, status, publications_count, updated_at)
+                VALUES ($1, $2, $3, $4, now())
+                ON CONFLICT (author_id) DO UPDATE SET
+                    run_id = EXCLUDED.run_id,
+                    status = EXCLUDED.status,
+                    publications_count = EXCLUDED.publications_count,
+                    updated_at = now()
+                """,
+                author_id,
+                run_id,
+                status,
+                pub_count,
             )
+
+    async def completed_author_ids(self) -> set:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT author_id FROM author_ingestion_status WHERE status = 'complete'"
+            )
+        return {r["author_id"] for r in rows}
 
     async def fetch_authors(
         self, session: aiohttp.ClientSession, max_results: int = 10000
@@ -275,13 +378,30 @@ class OpenAlexPipeline:
             )
 
     async def process_author(
-        self, session: aiohttp.ClientSession, author: Author, max_pubs: int
+        self,
+        session: aiohttp.ClientSession,
+        author: Author,
+        max_pubs: int,
+        run_id: Optional[int] = None,
     ) -> int:
-        """Save an author and fetch and save all their publications."""
+        """Save an author and fetch and save all their publications.
+
+        Per-author completion is persisted so a restart can skip finished
+        authors and so exports can tell incomplete ingestion from missing data.
+        """
         await self.save_author(author)
-        pubs = await self.fetch_publications(session, author.id, max_pubs)
-        for pub in pubs:
-            await self.save_publication(pub)
+        if run_id is not None:
+            await self.set_author_status(author.id, run_id, "in_progress")
+        try:
+            pubs = await self.fetch_publications(session, author.id, max_pubs)
+            for pub in pubs:
+                await self.save_publication(pub)
+        except BaseException:
+            if run_id is not None:
+                await self.set_author_status(author.id, run_id, "failed")
+            raise
+        if run_id is not None:
+            await self.set_author_status(author.id, run_id, "complete", len(pubs))
         return len(pubs)
 
     async def _process_with_semaphore(
@@ -292,6 +412,7 @@ class OpenAlexPipeline:
         author: Author,
         total: int,
         max_pubs: int,
+        run_id: Optional[int] = None,
     ) -> int:
         """Wrap process_author with a semaphore for concurrency control."""
         async with semaphore:
@@ -299,7 +420,7 @@ class OpenAlexPipeline:
                 "Processing author",
                 extra={"index": index + 1, "total": total, "author": author.name},
             )
-            pub_count = await self.process_author(session, author, max_pubs)
+            pub_count = await self.process_author(session, author, max_pubs, run_id)
             logger.info(
                 "Author complete",
                 extra={"author": author.name, "publications": pub_count},
@@ -311,20 +432,33 @@ class OpenAlexPipeline:
         max_authors: int = 10000,
         max_pubs_per_author: int = 10000,
         concurrency: int = 50,
+        resume: bool = True,
     ):
         """Orchestrate the full pipeline: fetch authors, then their publications.
 
         Raises on any fetch failure so that partial ingestion is never reported
-        as complete.
+        as complete. Completion is persisted in ingestion_runs and
+        author_ingestion_status; with resume=True, authors already marked
+        complete by a previous run are skipped.
         """
         await self.connect_db()
+        run_id = None
         try:
-            await self.create_tables()
+            await self.migrate()
 
             async with aiohttp.ClientSession() as session:
                 logger.info("Fetching authors")
                 authors = await self.fetch_authors(session, max_authors)
                 logger.info("Authors fetched", extra={"count": len(authors)})
+
+                already_done = await self.completed_author_ids() if resume else set()
+                pending = [a for a in authors if a.id not in already_done]
+                logger.info(
+                    "Resume check",
+                    extra={"skipped": len(authors) - len(pending), "pending": len(pending)},
+                )
+
+                run_id = await self.start_run(authors_total=len(authors))
 
                 logger.info("Processing authors", extra={"concurrency": concurrency})
                 semaphore = asyncio.Semaphore(concurrency)
@@ -336,28 +470,94 @@ class OpenAlexPipeline:
                             session,
                             index,
                             author,
-                            len(authors),
+                            len(pending),
                             max_pubs_per_author,
+                            run_id,
                         )
                     )
-                    for index, author in enumerate(authors)
+                    for index, author in enumerate(pending)
                 ]
                 try:
                     results = await asyncio.gather(*tasks)
-                except BaseException:
+                except BaseException as exc:
                     for task in tasks:
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
+                    completed = len(await self.completed_author_ids())
+                    await self.finish_run(run_id, "failed", completed, repr(exc))
                     logger.error("Pipeline failed; ingestion is incomplete")
                     raise
 
                 total_pubs = sum(results)
+                await self.finish_run(run_id, "complete", len(authors))
                 logger.info(
                     "Pipeline complete",
                     extra={"authors": len(authors), "publications": total_pubs},
                 )
         finally:
             await self.pool.close()
+
+    async def backfill_author_ids(self, batch_size: int = 50):
+        """Populate author_ids for publications ingested before schema v2.
+
+        Works are re-fetched from OpenAlex in batches by ID; only the
+        author_ids column is updated.
+        """
+        await self.connect_db()
+        try:
+            await self.migrate()
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT id FROM publications WHERE author_ids IS NULL"
+                )
+            ids = [r["id"] for r in rows]
+            logger.info("Backfill starting", extra={"publications": len(ids)})
+            if not ids:
+                return
+
+            async with aiohttp.ClientSession() as session:
+                for start in range(0, len(ids), batch_size):
+                    batch = ids[start : start + batch_size]
+                    await self._backfill_batch(session, batch)
+                    logger.info(
+                        "Backfill progress",
+                        extra={"done": min(start + batch_size, len(ids)), "total": len(ids)},
+                    )
+                    await asyncio.sleep(0.1)
+
+            async with self.pool.acquire() as conn:
+                remaining = await conn.fetchval(
+                    "SELECT COUNT(*) FROM publications WHERE author_ids IS NULL"
+                )
+            logger.info("Backfill complete", extra={"still_null": remaining})
+        finally:
+            await self.pool.close()
+
+    async def _backfill_batch(self, session: aiohttp.ClientSession, ids: Iterable[str]):
+        short_ids = [i.rsplit("/", 1)[-1] for i in ids]
+        params = {
+            "filter": f"ids.openalex:{'|'.join(short_ids)}",
+            "per-page": len(short_ids),
+            "select": "id,authorships",
+            "mailto": self.email,
+        }
+        async with session.get(f"{self.BASE_URL}/works", params=params) as resp:
+            if resp.status != 200:
+                raise OpenAlexFetchError(f"Backfill fetch failed: HTTP {resp.status}")
+            data = await resp.json()
+
+        updates = []
+        for item in data.get("results", []):
+            author_ids = [
+                (a.get("author") or {}).get("id", "")[:500]
+                for a in item.get("authorships", [])
+            ]
+            updates.append((item["id"][:500], author_ids))
+
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                "UPDATE publications SET author_ids = $2 WHERE id = $1", updates
+            )
 
 
 def load_config() -> dict:
@@ -378,14 +578,37 @@ def load_config() -> dict:
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="OpenAlex ingestion pipeline")
+    parser.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Only populate author_ids for publications ingested before schema v2",
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Re-process authors already marked complete by an earlier run",
+    )
+    args = parser.parse_args()
+
     config = load_config()
     db_url = (
         f"postgresql://{config['db_user']}:{quote(config['db_password'], safe='')}"
         f"@{config['db_host']}/{config['db_name']}"
     )
     pipeline = OpenAlexPipeline(db_url, config["email"], config["institution_ror"])
+
+    if args.backfill:
+        await pipeline.backfill_author_ids()
+        return
+
     # With 72 cores, use high concurrency
-    await pipeline.run(max_authors=40866, max_pubs_per_author=10000, concurrency=72)
+    await pipeline.run(
+        max_authors=40866,
+        max_pubs_per_author=10000,
+        concurrency=72,
+        resume=not args.no_resume,
+    )
 
 
 if __name__ == "__main__":
