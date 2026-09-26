@@ -1,10 +1,11 @@
 import asyncio
+import json
 import logging
 import os
 from dataclasses import dataclass
 from itertools import starmap
 from typing import List, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 import aiohttp
 import asyncpg
@@ -36,7 +37,12 @@ class Publication:
     publication_year: int
     pdf_url: Optional[str]
     authors: List[str]
+    author_ids: List[str]
     abstract: Optional[str]
+
+
+class OpenAlexFetchError(RuntimeError):
+    """Raised when the OpenAlex API returns a non-success response."""
 
 
 class OpenAlexPipeline:
@@ -81,9 +87,13 @@ class OpenAlexPipeline:
                     publication_year INT,
                     pdf_url TEXT,
                     authors TEXT[],
+                    author_ids TEXT[],
                     abstract TEXT
                 )
                 """
+            )
+            await conn.execute(
+                "ALTER TABLE publications ADD COLUMN IF NOT EXISTS author_ids TEXT[]"
             )
 
     async def fetch_authors(
@@ -109,7 +119,9 @@ class OpenAlexPipeline:
                         "Failed to fetch authors",
                         extra={"status": resp.status, "url": url},
                     )
-                    break
+                    raise OpenAlexFetchError(
+                        f"Failed to fetch authors: HTTP {resp.status}"
+                    )
 
                 data = await resp.json()
                 results = data.get("results", [])
@@ -127,7 +139,7 @@ class OpenAlexPipeline:
                         works_count=item.get("works_count", 0),
                         cited_by_count=item.get("cited_by_count", 0),
                         affiliations=[
-                            aff.get("display_name", "")[:500]
+                            (aff.get("institution") or {}).get("display_name", "")[:500]
                             for aff in item.get("affiliations", [])
                         ],
                     )
@@ -168,7 +180,10 @@ class OpenAlexPipeline:
                         "Failed to fetch publications",
                         extra={"status": resp.status, "author_id": author_id},
                     )
-                    break
+                    raise OpenAlexFetchError(
+                        f"Failed to fetch publications for {author_id}: "
+                        f"HTTP {resp.status}"
+                    )
 
                 data = await resp.json()
                 results = data.get("results", [])
@@ -179,7 +194,7 @@ class OpenAlexPipeline:
                 for item in results:
                     abstract = None
                     if item.get("abstract_inverted_index"):
-                        abstract = str(item.get("abstract_inverted_index"))[:5000]
+                        abstract = json.dumps(item["abstract_inverted_index"])
 
                     pdf_url = None
                     primary_location = item.get("primary_location") or {}
@@ -193,7 +208,11 @@ class OpenAlexPipeline:
                         publication_year=item.get("publication_year", 0),
                         pdf_url=pdf_url,
                         authors=[
-                            a.get("author", {}).get("display_name", "")[:500]
+                            (a.get("author") or {}).get("display_name", "")[:500]
+                            for a in item.get("authorships", [])
+                        ],
+                        author_ids=[
+                            (a.get("author") or {}).get("id", "")[:500]
                             for a in item.get("authorships", [])
                         ],
                         abstract=abstract,
@@ -233,14 +252,16 @@ class OpenAlexPipeline:
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO publications (id, title, doi, publication_year, pdf_url, authors, abstract)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                INSERT INTO publications
+                    (id, title, doi, publication_year, pdf_url, authors, author_ids, abstract)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (id) DO UPDATE SET
                     title = EXCLUDED.title,
                     doi = EXCLUDED.doi,
                     publication_year = EXCLUDED.publication_year,
                     pdf_url = EXCLUDED.pdf_url,
                     authors = EXCLUDED.authors,
+                    author_ids = EXCLUDED.author_ids,
                     abstract = EXCLUDED.abstract
                 """,
                 pub.id,
@@ -249,6 +270,7 @@ class OpenAlexPipeline:
                 pub.publication_year,
                 pub.pdf_url,
                 pub.authors,
+                pub.author_ids,
                 pub.abstract,
             )
 
@@ -290,33 +312,52 @@ class OpenAlexPipeline:
         max_pubs_per_author: int = 10000,
         concurrency: int = 50,
     ):
-        """Orchestrate the full pipeline: fetch authors, then their publications."""
+        """Orchestrate the full pipeline: fetch authors, then their publications.
+
+        Raises on any fetch failure so that partial ingestion is never reported
+        as complete.
+        """
         await self.connect_db()
-        await self.create_tables()
+        try:
+            await self.create_tables()
 
-        async with aiohttp.ClientSession() as session:
-            logger.info("Fetching authors")
-            authors = await self.fetch_authors(session, max_authors)
-            logger.info("Authors fetched", extra={"count": len(authors)})
+            async with aiohttp.ClientSession() as session:
+                logger.info("Fetching authors")
+                authors = await self.fetch_authors(session, max_authors)
+                logger.info("Authors fetched", extra={"count": len(authors)})
 
-            logger.info("Processing authors", extra={"concurrency": concurrency})
-            semaphore = asyncio.Semaphore(concurrency)
+                logger.info("Processing authors", extra={"concurrency": concurrency})
+                semaphore = asyncio.Semaphore(concurrency)
 
-            tasks = [
-                self._process_with_semaphore(
-                    semaphore, session, index, author, len(authors), max_pubs_per_author
+                tasks = [
+                    asyncio.create_task(
+                        self._process_with_semaphore(
+                            semaphore,
+                            session,
+                            index,
+                            author,
+                            len(authors),
+                            max_pubs_per_author,
+                        )
+                    )
+                    for index, author in enumerate(authors)
+                ]
+                try:
+                    results = await asyncio.gather(*tasks)
+                except BaseException:
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    logger.error("Pipeline failed; ingestion is incomplete")
+                    raise
+
+                total_pubs = sum(results)
+                logger.info(
+                    "Pipeline complete",
+                    extra={"authors": len(authors), "publications": total_pubs},
                 )
-                for index, author in enumerate(authors)
-            ]
-            results = await asyncio.gather(*tasks)
-
-            total_pubs = sum(results)
-            logger.info(
-                "Pipeline complete",
-                extra={"authors": len(authors), "publications": total_pubs},
-            )
-
-        await self.pool.close()
+        finally:
+            await self.pool.close()
 
 
 def load_config() -> dict:
@@ -339,7 +380,7 @@ def load_config() -> dict:
 async def main():
     config = load_config()
     db_url = (
-        f"postgresql://{config['db_user']}:{quote_plus(config['db_password'])}"
+        f"postgresql://{config['db_user']}:{quote(config['db_password'], safe='')}"
         f"@{config['db_host']}/{config['db_name']}"
     )
     pipeline = OpenAlexPipeline(db_url, config["email"], config["institution_ror"])

@@ -204,7 +204,8 @@ class Publication:
     publication_year: int        # Year of publication
     pdf_url: Optional[str]       # PDF URL if available (max 1000 chars)
     authors: List[str]           # Author names (each max 500 chars)
-    abstract: Optional[str]      # String representation of inverted index (max 5000 chars)
+    author_ids: List[str]        # OpenAlex author IDs, parallel to `authors`
+    abstract: Optional[str]      # JSON-serialized inverted index (complete, not truncated)
 ```
 
 ### Database Schema
@@ -231,6 +232,7 @@ CREATE TABLE publications (
     publication_year INT,
     pdf_url TEXT,
     authors TEXT[],
+    author_ids TEXT[],
     abstract TEXT
 );
 ```

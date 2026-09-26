@@ -30,15 +30,21 @@ class PubMedAuthorSearch:
         # Rate limiting
         self.requests_per_second = 10 if api_key else 3
         self.min_request_interval = 1.0 / self.requests_per_second
-        self.last_request_time = 0
+        self.last_request_time = 0.0
+        self._rate_lock = asyncio.Lock()
 
     async def _rate_limit(self):
-        """Ensure we don't exceed rate limits"""
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        if time_since_last < self.min_request_interval:
-            await asyncio.sleep(self.min_request_interval - time_since_last)
-        self.last_request_time = time.time()
+        """Ensure we don't exceed rate limits.
+
+        Grants are serialized with a lock so concurrent callers cannot all
+        observe the same last_request_time and fire simultaneously.
+        """
+        async with self._rate_lock:
+            current_time = time.monotonic()
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.min_request_interval:
+                await asyncio.sleep(self.min_request_interval - time_since_last)
+            self.last_request_time = time.monotonic()
 
     async def search_author(
         self, session: aiohttp.ClientSession, lastname: str, firstname: str
@@ -48,8 +54,6 @@ class PubMedAuthorSearch:
 
         Returns list of PMIDs (publication IDs)
         """
-        await self._rate_limit()
-
         # Build search query - try full name and first initial
         queries = [
             f"{lastname} {firstname}[Author]",
@@ -60,9 +64,10 @@ class PubMedAuthorSearch:
             ),
         ]
 
-        all_pmids = set()
+        all_pmids: List[str] = []
 
         for query in queries:
+            await self._rate_limit()
             params = {
                 "db": "pubmed",
                 "term": query,
@@ -84,11 +89,50 @@ class PubMedAuthorSearch:
                             "esearchresult" in data
                             and "idlist" in data["esearchresult"]
                         ):
-                            all_pmids.update(data["esearchresult"]["idlist"])
+                            all_pmids.extend(data["esearchresult"]["idlist"])
             except Exception as e:
                 print(f"Error searching for {firstname} {lastname}: {e}")
 
-        return list(all_pmids)[:10]  # Return top 10 PMIDs
+        # Deduplicate while preserving order, then rank newest-first
+        # (PMIDs are assigned sequentially, so higher = more recent)
+        unique_pmids = list(dict.fromkeys(all_pmids))
+        unique_pmids.sort(key=self._pmid_sort_key, reverse=True)
+        return unique_pmids[:10]  # Return top 10 PMIDs
+
+    @staticmethod
+    def _pmid_sort_key(pmid: str) -> int:
+        try:
+            return int(pmid)
+        except (TypeError, ValueError):
+            return -1
+
+    @staticmethod
+    def _is_initial_only(name: str) -> bool:
+        """True if a name token is a bare initial such as "J" or "J."."""
+        token = name.replace(".", "").strip()
+        return len(token) <= 1
+
+    @classmethod
+    def _match_firstname(cls, query: str, candidate: str) -> str:
+        """
+        Compare a queried first name against a candidate's ForeName.
+
+        Returns "match", "ambiguous", or "none".
+        - Full first names that differ (John vs James) are rejected.
+        - When either side is only an initial, an initial match is ambiguous.
+        """
+        q = query.strip().lower()
+        c = candidate.strip().lower()
+        if not q or not c:
+            return "none"
+
+        q_first = q.split()[0]
+        c_first = c.split()[0]
+
+        if cls._is_initial_only(q_first) or cls._is_initial_only(c_first):
+            return "ambiguous" if q_first[0] == c_first[0] else "none"
+
+        return "match" if q_first == c_first else "none"
 
     async def fetch_article_details(
         self, session: aiohttp.ClientSession, pmids: List[str]
@@ -204,6 +248,7 @@ class PubMedAuthorSearch:
                     "query": f"{firstname} {lastname}",
                     "found": False,
                     "affiliations": [],
+                    "ambiguous_affiliations": [],
                 }
 
             # Fetch article details
@@ -211,6 +256,7 @@ class PubMedAuthorSearch:
 
             # Extract unique affiliations for this author
             affiliations = {}
+            ambiguous_affiliations = {}
             emails = set()
             orcids = set()
 
@@ -218,29 +264,42 @@ class PubMedAuthorSearch:
                 for author in article["authors"]:
                     # Match the author we're looking for (case-insensitive)
                     lastname_match = (
-                        author.get("lastname", "").lower() == lastname.lower()
+                        (author.get("lastname") or "").lower() == lastname.lower()
                     )
-                    firstname_match = False
+                    if not lastname_match:
+                        continue
 
-                    if firstname and author.get("firstname"):
-                        # Check if first initial matches or full firstname matches
-                        firstname_match = (
-                            author.get("firstname", "")
-                            .lower()
-                            .startswith(firstname[0].lower())
-                            or author.get("firstname", "").lower() == firstname.lower()
-                        )
+                    if firstname:
+                        candidate_first = author.get("firstname") or ""
+                        if not candidate_first:
+                            # No first name on record: cannot confirm identity
+                            match_kind = "ambiguous"
+                        else:
+                            match_kind = self._match_firstname(
+                                firstname, candidate_first
+                            )
+                    else:
+                        # Last-name-only query: never a confirmed match
+                        match_kind = "ambiguous"
 
-                    if lastname_match and (not firstname or firstname_match):
-                        if "affiliation" in author and author["affiliation"]:
-                            # Use affiliation as key to track years
-                            aff = author["affiliation"]
-                            if aff not in affiliations:
-                                affiliations[aff] = {"years": set(), "pmids": []}
-                            if article["year"]:
-                                affiliations[aff]["years"].add(article["year"])
-                            affiliations[aff]["pmids"].append(article["pmid"])
+                    if match_kind == "none":
+                        continue
 
+                    bucket = (
+                        affiliations if match_kind == "match" else ambiguous_affiliations
+                    )
+
+                    if author.get("affiliation"):
+                        # Use affiliation as key to track years
+                        aff = author["affiliation"]
+                        if aff not in bucket:
+                            bucket[aff] = {"years": set(), "pmids": []}
+                        if article["year"]:
+                            bucket[aff]["years"].add(article["year"])
+                        bucket[aff]["pmids"].append(article["pmid"])
+
+                    # Only attach identifiers from confirmed matches
+                    if match_kind == "match":
                         if "email" in author:
                             emails.add(author["email"])
                         if "orcid" in author:
@@ -252,17 +311,22 @@ class PubMedAuthorSearch:
                 "found": len(affiliations) > 0,
                 "num_papers_checked": len(articles),
                 "affiliations": [],
+                "ambiguous_affiliations": [],
             }
 
-            for aff_text, aff_data in affiliations.items():
-                result["affiliations"].append(
+            def _format(bucket):
+                return [
                     {
                         "text": aff_text,
                         "years": sorted(list(aff_data["years"])),
                         "num_papers": len(aff_data["pmids"]),
                         "pmids": aff_data["pmids"][:3],  # Sample PMIDs
                     }
-                )
+                    for aff_text, aff_data in bucket.items()
+                ]
+
+            result["affiliations"] = _format(affiliations)
+            result["ambiguous_affiliations"] = _format(ambiguous_affiliations)
 
             if emails:
                 result["emails"] = list(emails)
@@ -393,6 +457,7 @@ def save_results(results: List[Dict], output_file: str = None):
                 "ORCIDs",
                 "Most_Recent_Affiliation",
                 "Years",
+                "Num_Ambiguous_Affiliations",
             ]
         )
 
@@ -422,6 +487,7 @@ def save_results(results: List[Dict], output_file: str = None):
                     orcids,
                     most_recent_aff,
                     years,
+                    len(result.get("ambiguous_affiliations", [])),
                 ]
             )
 
@@ -465,6 +531,12 @@ async def main():
                 most_recent = result["affiliations"][0]
                 print(f"    {most_recent['text'][:150]}...")
                 print(f"    Years: {', '.join(most_recent['years'])}")
+        elif result.get("ambiguous_affiliations"):
+            print(
+                f"\n? {result['query']} - Only initial-level matches "
+                f"({len(result['ambiguous_affiliations'])} affiliations); "
+                "see JSON output"
+            )
         else:
             print(f"\n✗ {result['query']} - No publications found")
 

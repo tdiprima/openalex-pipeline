@@ -5,8 +5,9 @@ Outputs: lastname, firstname, department, and all publication details.
 
 import asyncio
 import csv
+import json
 import os
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 import asyncpg
 from dotenv import load_dotenv
@@ -17,16 +18,20 @@ load_dotenv()
 def reconstruct_abstract(abstract_str):
     """
     Convert OpenAlex inverted index format to readable text.
-    The abstract is stored as a string representation of a dict like:
-    "{'word1': [0], 'word2': [1], ...}"
+    The abstract is stored as a JSON-serialized dict like:
+    {"word1": [0], "word2": [1], ...}
+    (older rows may use the Python repr form, which is also accepted).
     """
     if not abstract_str:
         return ""
 
     try:
-        # Parse the string as a dictionary
-        import ast
-        inverted_index = ast.literal_eval(abstract_str)
+        try:
+            inverted_index = json.loads(abstract_str)
+        except ValueError:
+            import ast
+
+            inverted_index = ast.literal_eval(abstract_str)
 
         # Find the maximum position to know how long the text is
         max_pos = 0
@@ -44,7 +49,7 @@ def reconstruct_abstract(abstract_str):
 
         # Join the words with spaces
         return " ".join(words)
-    except (ValueError, SyntaxError, KeyError):
+    except (ValueError, SyntaxError, KeyError, TypeError, AttributeError, IndexError):
         # If parsing fails, return empty string
         return ""
 
@@ -58,7 +63,7 @@ async def check_profiles():
     db_host = os.getenv("DB_HOST", "localhost")
     db_name = os.getenv("DB_NAME")
 
-    db_url = f"postgresql://{db_user}:{quote_plus(db_password)}@{db_host}/{db_name}"
+    db_url = f"postgresql://{db_user}:{quote(db_password, safe="")}@{db_host}/{db_name}"
     conn = await asyncpg.connect(db_url)
 
     try:
@@ -93,7 +98,7 @@ async def check_profiles():
             # Find matching authors
             authors = await conn.fetch(
                 """
-                SELECT name
+                SELECT id
                 FROM authors
                 WHERE LOWER(name) LIKE LOWER($1)
                 """,
@@ -101,17 +106,17 @@ async def check_profiles():
             )
 
             if authors:
-                # Get publications for these authors
-                author_names = [a["name"] for a in authors]
+                # Get publications for these authors, joined by OpenAlex author ID
+                author_ids = [a["id"] for a in authors]
 
                 publications = await conn.fetch(
                     """
                     SELECT title, doi, publication_year, pdf_url, authors, abstract
                     FROM publications
-                    WHERE authors && $1
+                    WHERE author_ids && $1
                     ORDER BY publication_year DESC
                     """,
-                    author_names,
+                    author_ids,
                 )
 
                 if publications:
