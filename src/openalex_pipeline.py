@@ -41,11 +41,11 @@ class Publication:
 
 class OpenAlexPipeline:
     BASE_URL = "https://api.openalex.org"
-    EXAMPLEORG_ROR = "00000000a"
 
-    def __init__(self, db_url: str, email: str):
+    def __init__(self, db_url: str, email: str, institution_ror: str):
         self.db_url = db_url
         self.email = email
+        self.institution_ror = institution_ror
         self.pool = None
 
     async def connect_db(self):
@@ -89,7 +89,7 @@ class OpenAlexPipeline:
     async def fetch_authors(
         self, session: aiohttp.ClientSession, max_results: int = 10000
     ) -> List[Author]:
-        """Fetch authors from ExampleOrg using cursor pagination."""
+        """Fetch authors from the configured institution using cursor pagination."""
         authors = []
         per_page = 200
         cursor = "*"
@@ -97,7 +97,7 @@ class OpenAlexPipeline:
         while len(authors) < max_results:
             url = f"{self.BASE_URL}/authors"
             params = {
-                "filter": f"affiliations.institution.ror:{self.EXAMPLEORG_ROR}",
+                "filter": f"affiliations.institution.ror:{self.institution_ror}",
                 "per-page": per_page,
                 "cursor": cursor,
                 "mailto": self.email,
@@ -321,7 +321,7 @@ class OpenAlexPipeline:
 
 def load_config() -> dict:
     """Load and validate required configuration from environment."""
-    required = ["DB_USER", "DB_PASSWORD", "DB_NAME", "OPENALEX_EMAIL"]
+    required = ["DB_USER", "DB_PASSWORD", "DB_NAME", "OPENALEX_EMAIL", "INSTITUTION_ROR"]
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {missing}")
@@ -332,6 +332,7 @@ def load_config() -> dict:
         "db_host": os.getenv("DB_HOST", "localhost"),
         "db_name": os.environ["DB_NAME"],
         "email": os.environ["OPENALEX_EMAIL"],
+        "institution_ror": os.environ["INSTITUTION_ROR"],
     }
 
 
@@ -341,7 +342,7 @@ async def main():
         f"postgresql://{config['db_user']}:{quote_plus(config['db_password'])}"
         f"@{config['db_host']}/{config['db_name']}"
     )
-    pipeline = OpenAlexPipeline(db_url, config["email"])
+    pipeline = OpenAlexPipeline(db_url, config["email"], config["institution_ror"])
     # With 72 cores, use high concurrency
     await pipeline.run(max_authors=40866, max_pubs_per_author=10000, concurrency=72)
 

@@ -1,7 +1,7 @@
 [project]
 name = "openalex-pipeline"
 version = "0.1.0"
-description = "Download ExampleOrg authors and publications from OpenAlex"
+description = "Download institutional authors and publications from OpenAlex"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [

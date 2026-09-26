@@ -6,7 +6,7 @@ Async Python pipeline that ingests OpenAlex author and publication data into Pos
 
 [OpenAlex](https://openalex.org/) is a free, open catalog of the global research system. It covers authors, publications, institutions, and citations across every academic discipline. The data is there, but accessing it at institutional scale means navigating a paginated REST API with rate limits and no bulk export. A naive sequential approach for a large research university can take hours.
 
-For ExampleOrg alone, that's 40,000+ authors and potentially millions of publications locked behind cursor-paginated endpoints returning 200 records at a time.
+For a large institution such as ExampleOrg, that can be 40,000+ authors and potentially millions of publications locked behind cursor-paginated endpoints returning 200 records at a time.
 
 ## Parallel Ingestion with Async I/O
 
@@ -70,6 +70,7 @@ DB_PASSWORD=your_password
 DB_HOST=localhost
 DB_NAME=your_dbname
 OPENALEX_EMAIL=your@email.com
+INSTITUTION_ROR=00000000a
 ```
 
 Create the database specified in `DB_NAME`. Tables are created automatically on first run.
@@ -82,7 +83,7 @@ python src/openalex_pipeline.py
 
 ### Utility scripts
 
-**Count total ExampleOrg authors in OpenAlex** (single API call, useful for setting `max_authors`):
+**Count total institution authors in OpenAlex** (single API call, useful for setting `max_authors`):
 
 ```bash
 python src/utils/count_authors.py

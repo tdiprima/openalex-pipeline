@@ -25,6 +25,7 @@
    DB_HOST=localhost
    DB_NAME=openalex_data
    OPENALEX_EMAIL=your_email@example.com
+   INSTITUTION_ROR=00000000a
    ```
 
 3. **Install dependencies**
@@ -331,9 +332,9 @@ All strings are truncated to safe maximums:
 ### Data Quality Decisions
 
 #### Filtering Institution
-- **ROR:** `00000000a` (ExampleOrg)
+- **ROR:** set via `INSTITUTION_ROR` env var (e.g. ExampleOrg)
 - **Filter level:** Affiliations (not current affiliation)
-- **Implication:** Captures anyone ever affiliated with ExampleOrg
+- **Implication:** Captures anyone ever affiliated with the institution
 - **Rationale:** More comprehensive institutional impact analysis
 
 #### Publication Sorting
@@ -390,13 +391,10 @@ All strings are truncated to safe maximums:
   - Upsert handles duplicates efficiently
 - **Consideration:** For very large datasets (>100k authors), incremental approach may be necessary
 
-#### Hard-coded Institution
-- **Current:** ExampleOrg ROR hard-coded in class
-- **Alternative:** Pass as parameter
-- **Decision:** Hard-coded for:
-  - This is a single-institution tool
-  - Simplifies usage
-- **Extensibility:** Easy to parameterize later if needed
+#### Institution Selection
+- **Current:** ROR ID read from `INSTITUTION_ROR` environment variable
+- **Rationale:** Keeps the tool institution-agnostic; single-institution per run
+- **Extensibility:** Change `.env` to target a different institution
 
 ---
 

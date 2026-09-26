@@ -1,5 +1,5 @@
 """
-Quickly get total number of ExampleOrg authors in OpenAlex
+Quickly get total number of institution authors in OpenAlex
 using the count from API metadata (single request).
 """
 
@@ -13,19 +13,19 @@ load_dotenv()
 
 
 async def count_all_authors():
-    """Get count of all ExampleOrg authors in OpenAlex"""
+    """Get count of all institution authors in OpenAlex"""
 
     BASE_URL = "https://api.openalex.org"
-    EXAMPLEORG_ROR = "00000000a"
+    INSTITUTION_ROR = os.getenv("INSTITUTION_ROR")
     email = os.getenv("OPENALEX_EMAIL")
 
-    print("🔍 Checking total ExampleOrg authors in OpenAlex...")
-    print(f"Using ROR: {EXAMPLEORG_ROR}\n")
+    print("🔍 Checking total institution authors in OpenAlex...")
+    print(f"Using ROR: {INSTITUTION_ROR}\n")
 
     async with aiohttp.ClientSession() as session:
         url = f"{BASE_URL}/authors"
         params = {
-            "filter": f"affiliations.institution.ror:{EXAMPLEORG_ROR}",
+            "filter": f"affiliations.institution.ror:{INSTITUTION_ROR}",
             "per-page": 1,  # We only need the metadata, not the results
             "mailto": email,
         }
@@ -40,7 +40,7 @@ async def count_all_authors():
             total_count = meta.get("count", 0)
 
             print("=" * 60)
-            print(f"✅ TOTAL EXAMPLEORG AUTHORS IN OPENALEX: {total_count:,}")
+            print(f"✅ TOTAL INSTITUTION AUTHORS IN OPENALEX: {total_count:,}")
             print("=" * 60)
             print(
                 f"\nYou can now run openalex_pipeline.py with max_authors={total_count}"
